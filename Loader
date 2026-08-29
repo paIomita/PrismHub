@@ -1,4 +1,4 @@
-local REPO = "paIomita"
+local REPO = "paIomita/PrismHub"
 local BRANCH = "main"
 local EXT = ""
 
