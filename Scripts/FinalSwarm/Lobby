@@ -803,6 +803,9 @@ local currentKey = Enum.KeyCode.LeftControl
 local KeybindBox = ConfigTab:Keybind({
     Title = "UI Toggle Key",
     Value = currentKey,
+    FillWidth = true,
+    Padding = 10,
+    CornerRadius = UDim.new(0, 6),
     Callback = function(v)
         if typeof(v) == "EnumItem" then
             currentKey = v
@@ -814,7 +817,6 @@ local KeybindBox = ConfigTab:Keybind({
         end)
     end,
 })
-
 
 ConfigTab:Space()
 
