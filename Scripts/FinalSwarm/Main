@@ -369,6 +369,535 @@ UI.HeightSlider = MovementTab:Slider({
     Value = { Min = 0, Max = 50, Default = 30 },
     Callback = function(value) S.Hover.height = value end,
 })
+local VisualsTab = Window:Tab({
+    Title = "Visuals",
+    Icon = "solar:eye-bold",
+    IconColor = DarkGray,
+    IconShape = "Square",
+    Border = false,
+})
+table.insert(Tabs, VisualsTab)
+
+local function getMouseLockToggleAPI()
+    local ok, api = pcall(function()
+        local shared = ReplicatedStorage:FindFirstChild("Shared")
+        if not shared then return nil end
+        local modules = shared:FindFirstChild("Modules")
+        if not modules then return nil end
+        local gameFolder = modules:FindFirstChild("Game")
+        if not gameFolder then return nil end
+        local module = gameFolder:FindFirstChild("MouseLockToggle")
+        if not module or not module:IsA("ModuleScript") then return nil end
+        return require(module)
+    end)
+    if ok and type(api) == "table" then
+        return api
+    end
+    return nil
+end
+
+local function applyMouseUnlockOnce()
+    local api = getMouseLockToggleAPI()
+    if api and type(api.setLocked) == "function" then
+        pcall(api.setLocked, false)
+    end
+    if S.originalDevMouseLock == nil then
+        S.originalDevMouseLock = player.DevEnableMouseLock
+    end
+    pcall(function() player.DevEnableMouseLock = false end)
+end
+
+UI.FreeCameraToggle = VisualsTab:Toggle({
+    Title = "Free Camera",
+    Value = false,
+    Callback = function(state)
+        S.FreeCamera = state
+        if state then
+            if not S.originalCameraMode then
+                S.originalCameraMode = player.CameraMode
+            end
+            player.CameraMode = Enum.CameraMode.Classic
+            S.originalMaxZoom = player.CameraMaxZoomDistance
+            player.CameraMaxZoomDistance = 1000000
+            applyMouseUnlockOnce()
+            WindUI:Notify({ Title = "Visuals", Content = "Free Camera Enabled", Duration = 3 })
+        else
+            if S.originalCameraMode then
+                player.CameraMode = S.originalCameraMode
+            end
+            if S.originalMaxZoom then
+                player.CameraMaxZoomDistance = S.originalMaxZoom
+            end
+            WindUI:Notify({ Title = "Visuals", Content = "Free Camera Disabled", Duration = 3 })
+        end
+    end,
+})
+
+VisualsTab:Space()
+
+local function clearVfxFolder()
+    local vfx = workspace:FindFirstChild("VFX")
+    if not vfx then return end
+    for _, child in ipairs(vfx:GetChildren()) do
+        child:Destroy()
+    end
+end
+
+local savedAtmosphere = nil
+local savedAtmosphereParent = nil
+
+local function findNormalAtmosphere()
+    local lighting = game:GetService("Lighting")
+    local atm = lighting:FindFirstChild("Normal Atmosphere")
+    if atm and atm:IsA("Atmosphere") then
+        return atm
+    end
+    for _, descendant in ipairs(lighting:GetDescendants()) do
+        if descendant:IsA("Atmosphere") and descendant.Name == "Normal Atmosphere" then
+            return descendant
+        end
+    end
+    return nil
+end
+
+local function applyRemoveFog()
+    local atm = findNormalAtmosphere()
+    if atm then
+        savedAtmosphere = atm
+        savedAtmosphereParent = atm.Parent
+        atm.Parent = nil
+    end
+end
+
+local function restoreFog()
+    if savedAtmosphere then
+        pcall(function()
+            local existing = findNormalAtmosphere()
+            if existing and existing ~= savedAtmosphere then
+                savedAtmosphere:Destroy()
+            elseif not savedAtmosphere.Parent then
+                savedAtmosphere.Parent = savedAtmosphereParent or game:GetService("Lighting")
+            end
+        end)
+        savedAtmosphere = nil
+        savedAtmosphereParent = nil
+    end
+end
+
+UI.RemoveEffectsToggle = VisualsTab:Toggle({
+    Title = "Remove Effects",
+    Value = false,
+    Callback = function(state)
+        S.RemoveEffects = state
+        if state then
+            clearVfxFolder()
+            applyRemoveFog()
+            WindUI:Notify({ Title = "Visuals", Content = "Remove Effects Enabled", Duration = 3 })
+        else
+            restoreFog()
+            WindUI:Notify({ Title = "Visuals", Content = "Remove Effects Disabled", Duration = 3 })
+        end
+    end,
+})
+
+VisualsTab:Space()
+
+local anonymousOriginals = setmetatable({}, { __mode = "k" })
+local anonymousConnections = setmetatable({}, { __mode = "k" })
+local anonFastConnection = nil
+
+local function findPath(root, ...)
+    local current = root
+    for _, name in ipairs({ ... }) do
+        if not current then return nil end
+        current = current:FindFirstChild(name)
+    end
+    return current
+end
+
+local function hookFastLabel(label)
+    if anonymousConnections[label] then return end
+    anonymousConnections[label] = label:GetPropertyChangedSignal("Text"):Connect(function()
+        if not S.Anonymous then return end
+        if label.Text ~= "???" then
+            label.Text = "???"
+        end
+    end)
+end
+
+local function anonApplyEntries(entries)
+    if type(entries) ~= "table" then return end
+    for _, entry in ipairs(entries) do
+        local label = entry.label
+        if label and (label:IsA("TextLabel") or label:IsA("TextButton")) then
+            if label.Text ~= "???" then
+                if anonymousOriginals[label] == nil then
+                    anonymousOriginals[label] = label.Text
+                end
+                label.Text = "???"
+            end
+            hookFastLabel(label)
+        end
+    end
+end
+
+local function findNametagEntries()
+    local entries = {}
+    local myDisplay = player.DisplayName
+    local candidates = {}
+    local chars = workspace:FindFirstChild("Characters") or game:FindFirstChild("Characters")
+    if chars then
+        local c1 = chars:FindFirstChild(player.Name)
+        if c1 then table.insert(candidates, c1) end
+        local c2 = chars:FindFirstChild(tostring(player.UserId))
+        if c2 then table.insert(candidates, c2) end
+        local c3 = chars:FindFirstChild(myDisplay)
+        if c3 then table.insert(candidates, c3) end
+    end
+    if player.Character then
+        table.insert(candidates, player.Character)
+    end
+    for _, char in ipairs(candidates) do
+        local head = char:FindFirstChild("Head")
+        if head then
+            local fca = head:FindFirstChild("FaceCenterAttachment")
+            if fca then
+                local ot = fca:FindFirstChild("OverheadTitle")
+                if ot then
+                    local nl = ot:FindFirstChild("NameLabel")
+                    if nl and (nl:IsA("TextLabel") or nl:IsA("TextButton")) then
+                        table.insert(entries, { label = nl, fallback = myDisplay })
+                    end
+                end
+                local nl2 = fca:FindFirstChild("NameLabel")
+                if nl2 and (nl2:IsA("TextLabel") or nl2:IsA("TextButton")) then
+                    table.insert(entries, { label = nl2, fallback = myDisplay })
+                end
+            end
+        end
+    end
+    return entries
+end
+
+local function findLeaderboardEntries()
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then return {} end
+    local playersFolder = findPath(playerGui, "Leaderboard", "Leaderboard", "Players")
+    if not playersFolder then return {} end
+    local entry = playersFolder:FindFirstChild(tostring(player.UserId))
+        or playersFolder:FindFirstChild(player.Name)
+    if not entry then return {} end
+    local label = findPath(entry, "PlayerInfo", "NameLabel")
+    if label and (label:IsA("TextLabel") or label:IsA("TextButton")) then
+        return { { label = label, fallback = player.DisplayName } }
+    end
+    return {}
+end
+
+local function findPlayerEntryEntries()
+    local coreGui = game:GetService("CoreGui")
+    local entry = findPath(coreGui, "PlayerList", "Children", "OffsetFrame", "PlayerScrollList",
+        "SizeOffsetFrame", "ScrollingFrameContainer", "ScrollingFrameClippingFrame",
+        "ScrollingFrame", "OffsetUndoFrame", "TeamList_Neutral",
+        "PlayerEntry_" .. tostring(player.UserId))
+    if not entry then return {} end
+    local label = findPath(entry, "PlayerEntryContentFrame", "OverlayFrame", "NameFrame", "PlayerName", "PlayerName")
+    if label and (label:IsA("TextLabel") or label:IsA("TextButton")) then
+        return { { label = label, fallback = player.DisplayName } }
+    end
+    return {}
+end
+
+local function findDropDownEntries()
+    local coreGui = game:GetService("CoreGui")
+    local tcf = findPath(coreGui, "PlayerList", "Children", "OffsetFrame", "PlayerScrollList",
+        "SizeOffsetFrame", "ScrollingFrameContainer", "PlayerDropDown",
+        "InnerFrame", "PlayerHeader", "Background", "TextContainerFrame")
+    if not tcf then return {} end
+    local dn = tcf:FindFirstChild("DisplayName")
+    local un = tcf:FindFirstChild("PlayerName")
+    if not dn and not un then return {} end
+    local myName = player.Name
+    local myDisplay = player.DisplayName
+    local dnText = (dn and dn:IsA("TextLabel") and dn.Text) or ""
+    local unText = (un and un:IsA("TextLabel") and un.Text) or ""
+    local unClean = unText:gsub("^@", "")
+    local isMe = (dnText ~= "" and (dnText == myDisplay or dnText == myName))
+        or (unClean ~= "" and (unClean == myName or unClean == myDisplay))
+        or dnText == "???"
+        or unText == "???"
+    if not isMe then return {} end
+    local entries = {}
+    if dn and dn:IsA("TextLabel") then
+        table.insert(entries, { label = dn, fallback = myDisplay })
+    end
+    if un and un:IsA("TextLabel") then
+        table.insert(entries, { label = un, fallback = "@" .. myName })
+    end
+    return entries
+end
+
+local function findPeopleRowEntries()
+    local coreGui = game:GetService("CoreGui")
+    local peopleList = findPath(coreGui,
+        "RobloxGui", "SettingsClippingShield", "SettingsShield", "MenuContainer",
+        "Page", "PageViewClipper", "PageView", "PageViewInnerFrame", "peoplepage",
+        "FocusRoot", "PeopleReactView", "People", "PeopleList")
+    if not peopleList then return {} end
+    local rows = {}
+    local function collectRows(parent)
+        for _, child in ipairs(parent:GetChildren()) do
+            if child.Name == "PersonRow" then
+                table.insert(rows, child)
+            end
+            collectRows(child)
+        end
+    end
+    pcall(collectRows, peopleList)
+    local entries = {}
+    local myName = player.Name
+    local myDisplay = player.DisplayName
+    for _, row in ipairs(rows) do
+        local nc = findPath(row, "RowContent", "LeftContent", "NameContainer")
+        if nc then
+            local display = nc:FindFirstChild("DisplayName") or nc:FindFirstChild("DisplayUsername")
+            local username = nc:FindFirstChild("UserName")
+            if display and display:IsA("TextLabel") then
+                local dText = display.Text or ""
+                if dText == myDisplay or dText == myName or dText == "???" then
+                    table.insert(entries, { label = display, fallback = myDisplay })
+                end
+            end
+            if username and username:IsA("TextLabel") then
+                local uClean = (username.Text or ""):gsub("^@", "")
+                if uClean == myName or uClean == myDisplay or uClean == "???" then
+                    table.insert(entries, { label = username, fallback = "@" .. myName })
+                end
+            end
+        end
+    end
+    return entries
+end
+
+local anonFinders = {
+    findNametagEntries, findLeaderboardEntries, findPlayerEntryEntries,
+    findDropDownEntries, findPeopleRowEntries,
+}
+
+local function applyAnonymousAll()
+    for _, finder in ipairs(anonFinders) do
+        local ok, entries = pcall(finder)
+        if ok then
+            pcall(anonApplyEntries, entries)
+        end
+    end
+end
+
+local function startAnonFastLoop()
+    if anonFastConnection then return end
+    anonFastConnection = RunService.Heartbeat:Connect(function()
+        if not S.Anonymous then return end
+        pcall(applyAnonymousAll)
+    end)
+end
+
+local function stopAnonFastLoop()
+    if anonFastConnection then
+        anonFastConnection:Disconnect()
+        anonFastConnection = nil
+    end
+end
+
+local function restoreAnonymous()
+    stopAnonFastLoop()
+    for _, conn in pairs(anonymousConnections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    table.clear(anonymousConnections)
+    local originals = anonymousOriginals
+    anonymousOriginals = setmetatable({}, { __mode = "k" })
+    local function restorePass()
+        for label, original in pairs(originals) do
+            pcall(function()
+                if label and label.Parent and label.Text == "???" then
+                    label.Text = original
+                end
+            end)
+        end
+        for _, finder in ipairs(anonFinders) do
+            pcall(function()
+                local entries = finder()
+                if type(entries) ~= "table" then return end
+                for _, entry in ipairs(entries) do
+                    local l = entry.label
+                    if l and l.Parent and l.Text == "???" then
+                        local original = originals[l] or entry.fallback
+                        if original and original ~= "" and original ~= "???" then
+                            l.Text = original
+                        end
+                    end
+                end
+            end)
+        end
+    end
+    restorePass()
+    task.delay(0.25, function() if not S.Anonymous then pcall(restorePass) end end)
+    task.delay(1, function() if not S.Anonymous then pcall(restorePass) end end)
+    task.delay(3, function() if not S.Anonymous that pcall(restorePass) end end)
+end
+
+UI.AnonymousToggle = VisualsTab:Toggle({
+    Title = "Anonymous",
+    Value = false,
+    Callback = function(state)
+        S.Anonymous = state
+        if state then
+            pcall(applyAnonymousAll)
+            startAnonFastLoop()
+            WindUI:Notify({ Title = "Visuals", Content = "Anonymous Enabled", Duration = 3 })
+        else
+            restoreAnonymous()
+            WindUI:Notify({ Title = "Visuals", Content = "Anonymous Disabled", Duration = 3 })
+        end
+    end,
+})
+
+task.spawn(function()
+    while true do
+        if S.FreeCamera then
+            pcall(function() player.CameraMode = Enum.CameraMode.Classic end)
+            pcall(function() player.CameraMaxZoomDistance = 1000000 end)
+        end
+        if S.RemoveEffects then
+            clearVfxFolder()
+            pcall(applyRemoveFog)
+        end
+        if S.Anonymous then pcall(applyAnonymousAll) end
+        task.wait(0.5)
+    end
+end)
+
+local CardsTab = Window:Tab({
+    Title = "Cards",
+    Icon = "lucide:dice-6",
+    IconColor = LightGray,
+    IconShape = "Square",
+    Border = false,
+})
+table.insert(Tabs, CardsTab)
+
+local SelectedItem = ALL_ITEMS[1]
+
+UI.AutoPickToggle = CardsTab:Toggle({
+    Title = "Auto Pick",
+    Value = false,
+    Callback = function(state)
+        S.AutoPick = state
+        if state then
+            WindUI:Notify({ Title = "Cards", Content = "Auto Pick Enabled", Duration = 3 })
+        else
+            WindUI:Notify({ Title = "Cards", Content = "Auto Pick Disabled", Duration = 3 })
+        end
+    end,
+})
+
+CardsTab:Space()
+
+UI.MethodDropdown = CardsTab:Dropdown({
+    Title = "Method",
+    Values = { "Standard", "Raid", "Custom" },
+    Value = "Standard",
+    Multi = false,
+    Callback = function(selected)
+        S.SelectedMethod = selected
+    end,
+})
+
+CardsTab:Space()
+
+CardsTab:Section({
+    Title = "Custom",
+    TextSize = 18,
+    FontWeight = Enum.FontWeight.SemiBold,
+})
+
+CardsTab:Space()
+
+UI.PriorityListInput = CardsTab:Input({
+    Title = "Priority List",
+    Value = "",
+    Placeholder = "Item1, Item2, Item3, ... (only used by Custom)",
+    Type = "Input",
+    Callback = function(text)
+        S.CustomList = parseListText(text)
+    end,
+})
+
+CardsTab:Space()
+
+CardsTab:Dropdown({
+    Title = "Item",
+    Values = ALL_ITEMS,
+    Value = ALL_ITEMS[1],
+    Multi = false,
+    Callback = function(selected)
+        SelectedItem = selected
+    end,
+})
+
+CardsTab:Space()
+
+local AddRemoveGroup = CardsTab:Group({})
+
+AddRemoveGroup:Button({
+    Title = "Add",
+    Color = Green,
+    Icon = "",
+    Justify = "Center",
+    Callback = function()
+        if not SelectedItem then return end
+        local exists = false
+        for _, item in ipairs(S.CustomList) do
+            if item == SelectedItem then
+                exists = true
+                break
+            end
+        end
+        if not exists then
+            table.insert(S.CustomList, SelectedItem)
+            UI.PriorityListInput:Set(table.concat(S.CustomList, ", "))
+            WindUI:Notify({ Title = "Cards", Content = "Added " .. SelectedItem, Duration = 3 })
+        else
+            WindUI:Notify({ Title = "Cards", Content = SelectedItem .. " is already in the list", Duration = 3 })
+        end
+    end,
+})
+
+AddRemoveGroup:Space()
+
+AddRemoveGroup:Button({
+    Title = "Remove",
+    Color = Red,
+    Icon = "",
+    Justify = "Center",
+    Callback = function()
+        if not SelectedItem then return end
+        local removed = false
+        for i, item in ipairs(S.CustomList) do
+            if item == SelectedItem then
+                table.remove(S.CustomList, i)
+                removed = true
+                break
+            end
+        end
+        if removed then
+            UI.PriorityListInput:Set(table.concat(S.CustomList, ", "))
+            WindUI:Notify({ Title = "Cards", Content = "Removed " .. SelectedItem, Duration = 3 })
+        else
+            WindUI:Notify({ Title = "Cards", Content = SelectedItem .. " is not in the list", Duration = 3 })
+        end
+    end,
+})
 local function getPriorityList()
     if S.SelectedMethod == "Custom" and #S.CustomList > 0 then
         return S.CustomList
