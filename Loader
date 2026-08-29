@@ -1,4 +1,4 @@
-local REPO = "paIomita/PrismHub"
+local REPO = "paIomita"
 local BRANCH = "main"
 local EXT = ""
 
@@ -16,16 +16,6 @@ local GAMES = {
     [PLACE.Lobby] = "FinalSwarm",
     [PLACE.Main] = "FinalSwarm",
 }
-
-local function notify(title, text, duration)
-    pcall(function()
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = title,
-            Text = text,
-            Duration = duration or 5,
-        })
-    end)
-end
 
 local function isRaidMode()
     local deadline = tick() + 10
@@ -49,31 +39,18 @@ local function runFile(gameName, variant)
     local ok, result = pcall(function()
         return game:HttpGet(url)
     end)
-    if not ok then
-        notify("PrismHub", "Download failed: " .. variant, 8)
-        return
-    end
+    if not ok then return end
     if type(result) == "string" and result:sub(1, 3) == "404" then
-        notify("PrismHub", variant .. " not found in repo (404)", 8)
         return
     end
-    local fn, err = loadstring(result, "=" .. variant)
-    if not fn then
-        notify("PrismHub", "Compile error in " .. variant .. ": " .. tostring(err), 8)
-        return
-    end
-    notify("PrismHub", "Loading " .. gameName .. " - " .. variant, 4)
-    local ran, runErr = pcall(fn)
-    if not ran then
-        notify("PrismHub", "Error in " .. variant .. ": " .. tostring(runErr), 8)
-    end
+    local fn = loadstring(result, "=" .. variant)
+    if not fn then return end
+    pcall(fn)
 end
 
 local gameName = GAMES[game.PlaceId]
 
-if not gameName then
-    notify("PrismHub", "This game is not supported.", 6)
-else
+if gameName then
     local variant
     if game.PlaceId == PLACE.Lobby then
         variant = "Lobby"
