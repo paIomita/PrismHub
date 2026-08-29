@@ -798,22 +798,39 @@ ConfigTab:Section({
 
 ConfigTab:Space()
 
-local currentKey = Enum.KeyCode.LeftControl
+local listening = false
 
-local KeybindBox = ConfigTab:Keybind({
+UI.KeyDisplayInput = ConfigTab:Input({
     Title = "UI Toggle Key",
-    Value = currentKey,
-    FillWidth = true,
-    Padding = 10,
-    CornerRadius = UDim.new(0, 6),
-    Callback = function(v)
-        if typeof(v) == "EnumItem" then
-            currentKey = v
-        elseif typeof(v) == "string" and Enum.KeyCode[v] then
-            currentKey = Enum.KeyCode[v]
-        end
-        pcall(function()
-            Window:SetToggleKey(currentKey)
+    Value = "LeftControl",
+    Placeholder = "Click Change Key, then press a key",
+    Type = "Input",
+    Callback = function() end, -- read-only display, ignore edits
+})
+
+ConfigTab:Space()
+
+ConfigTab:Button({
+    Title = "Change Key",
+    Color = Blue,
+    Justify = "Center",
+    Callback = function()
+        if listening then return end
+        listening = true
+        UI.KeyDisplayInput:Set("Press any key...")
+        local conn
+        conn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if gameProcessed then return end
+            conn:Disconnect()
+            listening = false
+            local key = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
+            if typeof(key) == "EnumItem" and Enum.KeyCode[key.Name] then
+                currentKey = key
+                UI.KeyDisplayInput:Set(key.Name)
+                pcall(function() Window:SetToggleKey(currentKey) end)
+            else
+                UI.KeyDisplayInput:Set(currentKey.Name)
+            end
         end)
     end,
 })
