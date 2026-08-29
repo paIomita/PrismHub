@@ -72,6 +72,7 @@ local S = {
     BuyDailyItems = false, BuyDailyItemsGen = 0,
     AutoCodes = false, AutoCodesGen = 0,
     AutoGrade = false,
+    Loading = false,
 }
 
 local function selectDropdown(element, value)
@@ -493,9 +494,13 @@ UI.AutoOpenAllToggle = ChestsTab:Toggle({
                     task.wait(1)
                 end
             end)
-            WindUI:Notify({ Title = "Chests", Content = "Auto Open All Enabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Chests", Content = "Auto Open All Enabled", Duration = 3 })
+            end
         else
-            WindUI:Notify({ Title = "Chests", Content = "Auto Open All Disabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Chests", Content = "Auto Open All Disabled", Duration = 3 })
+            end
         end
     end,
 })
@@ -539,9 +544,13 @@ UI.AutoCodesToggle = MiscTab:Toggle({
                     task.wait(5)
                 end
             end)
-            WindUI:Notify({ Title = "Codes", Content = "Auto Codes Enabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Codes", Content = "Auto Codes Enabled", Duration = 3 })
+            end
         else
-            WindUI:Notify({ Title = "Codes", Content = "Auto Codes Disabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Codes", Content = "Auto Codes Disabled", Duration = 3 })
+            end
         end
     end,
 })
@@ -561,7 +570,9 @@ UI.AutoGradeToggle = MiscTab:Toggle({
             end)
 
             if installGradeHook() then
-                WindUI:Notify({ Title = "Grade", Content = "Auto Grade Enabled", Duration = 3 })
+                if not S.Loading then
+                    WindUI:Notify({ Title = "Grade", Content = "Auto Grade Enabled", Duration = 3 })
+                end
                 if resolveGradeUI() then
                     task.defer(runGradeSession)
                 end
@@ -575,7 +586,9 @@ UI.AutoGradeToggle = MiscTab:Toggle({
                 end)
             end
         else
-            WindUI:Notify({ Title = "Grade", Content = "Auto Grade Disabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Grade", Content = "Auto Grade Disabled", Duration = 3 })
+            end
         end
     end,
 })
@@ -609,9 +622,13 @@ UI.ClaimDailyKeysToggle = MiscTab:Toggle({
                     task.wait(1)
                 end
             end)
-            WindUI:Notify({ Title = "Shop", Content = "Claim Daily Keys Enabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Shop", Content = "Claim Daily Keys Enabled", Duration = 3 })
+            end
         else
-            WindUI:Notify({ Title = "Shop", Content = "Claim Daily Keys Disabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Shop", Content = "Claim Daily Keys Disabled", Duration = 3 })
+            end
         end
     end,
 })
@@ -640,9 +657,13 @@ UI.BuyDailyItemsToggle = MiscTab:Toggle({
                     task.wait(1)
                 end
             end)
-            WindUI:Notify({ Title = "Shop", Content = "Buy Daily Items Enabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Shop", Content = "Buy Daily Items Enabled", Duration = 3 })
+            end
         else
-            WindUI:Notify({ Title = "Shop", Content = "Buy Daily Items Disabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Shop", Content = "Buy Daily Items Disabled", Duration = 3 })
+            end
         end
     end,
 })
@@ -864,6 +885,9 @@ local function getStateTable()
         BuyDailyItems = S.BuyDailyItems,
         AutoCodes = S.AutoCodes,
         AutoGrade = S.AutoGrade,
+        Theme = WindUI:GetCurrentTheme(),
+        Acrylic = WindUI.Window.Acrylic,
+        Transparent = WindUI:GetTransparency(),
     }
 end
 
@@ -872,6 +896,11 @@ local function getMergedStateTable()
 end
 
 local function applyStateTable(state)
+    S.Loading = true
+    task.delay(5, function()
+        S.Loading = false
+    end)
+
     local deadline = tick() + 10
     while tick() < deadline do
         if UI.ChestDropdown and UI.AutoGradeToggle then
@@ -899,6 +928,25 @@ local function applyStateTable(state)
     if state.BuyDailyItems ~= nil then safeSet(UI.BuyDailyItemsToggle, state.BuyDailyItems) end
     if state.AutoCodes ~= nil then safeSet(UI.AutoCodesToggle, state.AutoCodes) end
     if state.AutoGrade ~= nil then safeSet(UI.AutoGradeToggle, state.AutoGrade) end
+    if type(state.Theme) == "string" and state.Theme ~= "" then
+        pcall(function()
+            WindUI:SetTheme(state.Theme)
+        end)
+    end
+    if type(state.Acrylic) == "boolean" then
+        pcall(function()
+            if WindUI.Window.Acrylic ~= state.Acrylic then
+                WindUI:ToggleAcrylic(state.Acrylic)
+            end
+        end)
+    end
+    if type(state.Transparent) == "boolean" then
+        pcall(function()
+            if Window:GetTransparency() ~= state.Transparent then
+                Window:ToggleTransparency(state.Transparent)
+            end
+        end)
+    end
 end
 
 ConfigTab:Button({
@@ -1021,7 +1069,7 @@ task.spawn(function()
                     applyStateTable(state)
                 end)
                 if successLoad then
-                    
+                    WindUI:Notify({ Title = "Config", Content = "AutoLoaded '" .. configName .. "'", Duration = 3 })
                 else
                     WindUI:Notify({ Title = "Config", Content = "AutoLoad Error: " .. tostring(err), Duration = 5 })
                 end
