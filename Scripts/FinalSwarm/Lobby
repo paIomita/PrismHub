@@ -798,40 +798,13 @@ ConfigTab:Section({
 
 ConfigTab:Space()
 
-local currentKey = Enum.KeyCode.LeftControl
-
-local KeybindBox = ConfigTab:Keybind({
+UI.KeyDisplayInput = ConfigTab:Input({
     Title = "UI Toggle Key",
-    Value = currentKey,
-    FillWidth = true,
-    Padding = 10,
-    CornerRadius = UDim.new(0, 6),
-    Callback = function(v)
-        if typeof(v) == "EnumItem" then
-            currentKey = v
-        elseif typeof(v) == "string" and Enum.KeyCode[v] then
-            currentKey = Enum.KeyCode[v]
-        end
-        pcall(function()
-            Window:SetToggleKey(currentKey)
-        end)
-    end,
+    Value = "LeftControl",
+    Placeholder = "Click to set a key...",
+    Type = "Input",
+    Callback = function() end,
 })
-
-ConfigTab:Space()
-
-task.spawn(function()
-    task.wait(0.5)
-    pcall(function()
-        local root = KeybindBox.Button or KeybindBox.Frame or KeybindBox.Instance
-        if typeof(root) ~= "Instance" then return end
-        local btn = root:IsA("GuiButton") and root
-            or root:FindFirstChildWhichIsA("GuiButton", true)
-        if btn and btn.Parent then
-            btn.Size = UDim2.new(1, -16, 1, 0)
-        end
-    end)
-end)
 
 ConfigTab:Space()
 
