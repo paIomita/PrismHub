@@ -1230,7 +1230,7 @@ do
 end
 
 WindUI:Notify({
-    Title = "PrismHub",
+    Title = "Prism Hub",
     Content = "Game Detected: Final Swarm",
     Duration = 10,
     CanClose = true,
