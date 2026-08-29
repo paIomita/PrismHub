@@ -799,77 +799,37 @@ ConfigTab:Section({
 ConfigTab:Space()
 
 local currentKey = Enum.KeyCode.LeftControl
-local listening = false
-local listenConn = nil
 
-local function applyToggleKey(key)
-    task.delay(0.1, function()
-        pcall(function()
-            Window:SetToggleKey(key)
-        end)
-    end)
-end
-
-UI.KeyDisplayInput = ConfigTab:Input({
+local KeybindBox = ConfigTab:Keybind({
     Title = "UI Toggle Key",
-    Value = "LeftControl",
-    Placeholder = "Click to set a key...",
-    Type = "Input",
-    Callback = function() end,
+    Value = currentKey,
+    FillWidth = true,
+    Padding = 10,
+    CornerRadius = UDim.new(0, 6),
+    Callback = function(v)
+        if typeof(v) == "EnumItem" then
+            currentKey = v
+        elseif typeof(v) == "string" and Enum.KeyCode[v] then
+            currentKey = Enum.KeyCode[v]
+        end
+        pcall(function()
+            Window:SetToggleKey(currentKey)
+        end)
+    end,
 })
 
+ConfigTab:Space()
+
 task.spawn(function()
-    local box = nil
-    local deadline = tick() + 10
-    while tick() < deadline and not box do
-        pcall(function()
-            box = UI.KeyDisplayInput.TextBox
-                or UI.KeyDisplayInput.Frame:FindFirstChildWhichIsA("TextBox", true)
-        end)
-        task.wait(0.1)
-    end
-    if not box then return end
-
+    task.wait(0.5)
     pcall(function()
-        box.TextEditable = false
-        box.ClearTextOnFocus = false
-        box.ReadOnly = true
-    end)
-
-    box.Focused:Connect(function()
-        if listening then return end
-        listening = true
-        pcall(function()
-            Window:SetToggleKey(Enum.KeyCode.F24)
-        end)
-        UI.KeyDisplayInput:Set("Press any key...")
-
-        listenConn = UserInputService.InputBegan:Connect(function(input)
-            local key = input.KeyCode
-            if key == Enum.KeyCode.Unknown then return end
-            listenConn:Disconnect()
-            listenConn = nil
-            listening = false
-            if typeof(key) == "EnumItem" and Enum.KeyCode[key.Name] then
-                currentKey = key
-            end
-            UI.KeyDisplayInput:Set(currentKey.Name)
-            pcall(function()
-                box:ReleaseFocus()
-            end)
-            applyToggleKey(currentKey)
-        end)
-    end)
-
-    box.FocusLost:Connect(function()
-        if not listening then return end
-        if listenConn then
-            listenConn:Disconnect()
-            listenConn = nil
+        local root = KeybindBox.Button or KeybindBox.Frame or KeybindBox.Instance
+        if typeof(root) ~= "Instance" then return end
+        local btn = root:IsA("GuiButton") and root
+            or root:FindFirstChildWhichIsA("GuiButton", true)
+        if btn and btn.Parent then
+            btn.Size = UDim2.new(1, -16, 1, 0)
         end
-        listening = false
-        UI.KeyDisplayInput:Set(currentKey.Name)
-        applyToggleKey(currentKey)
     end)
 end)
 
