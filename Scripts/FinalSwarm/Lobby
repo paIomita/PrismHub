@@ -798,6 +798,25 @@ ConfigTab:Section({
 
 ConfigTab:Space()
 
+local currentKey = Enum.KeyCode.LeftControl
+
+local KeybindBox = ConfigTab:Keybind({
+    Title = "UI Toggle Key",
+    Value = currentKey,
+    Callback = function(v)
+        if typeof(v) == "EnumItem" then
+            currentKey = v
+        elseif typeof(v) == "string" and Enum.KeyCode[v] then
+            currentKey = Enum.KeyCode[v]
+        end
+        pcall(function()
+            Window:SetToggleKey(currentKey)
+        end)
+    end,
+})
+
+ConfigTab:Space()
+
 local ConfigFolder = "FinalSwarm_Configs"
 if isfolder and not isfolder(ConfigFolder) then
     pcall(function() makefolder(ConfigFolder) end)
@@ -1021,7 +1040,7 @@ task.spawn(function()
                     applyStateTable(state)
                 end)
                 if successLoad then
-                    WindUI:Notify({ Title = "Config", Content = "AutoLoaded '" .. configName .. "'", Duration = 3 })
+                    
                 else
                     WindUI:Notify({ Title = "Config", Content = "AutoLoad Error: " .. tostring(err), Duration = 5 })
                 end
@@ -1162,32 +1181,9 @@ do
     end)
 end
 
-local keybindOk = false
-pcall(function()
-    Window:SetToggleKey(Enum.KeyCode.LeftControl)
-    keybindOk = true
-end)
-
-if not keybindOk then
-    local uiVisible = true
-    UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if gameProcessed then return end
-        if input.KeyCode == Enum.KeyCode.LeftControl then
-            uiVisible = not uiVisible
-            pcall(function()
-                if Window.Toggle then
-                    Window:Toggle(uiVisible)
-                elseif Window.Show and Window.Hide then
-                    if uiVisible then Window:Show() else Window:Hide() end
-                end
-            end)
-        end
-    end)
-end
-
 WindUI:Notify({
     Title = "PrismHub",
-    Content = "Final Swarm Lobby loaded. Press Left Ctrl to toggle the UI.",
+    Content = "Game Detected: Final Swarm",
     Duration = 10,
     CanClose = true,
 })
