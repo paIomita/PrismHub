@@ -1,0 +1,1193 @@
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local TweenService = game:GetService("TweenService")
+
+local cloneref = (cloneref or clonereference or function(instance)
+    return instance
+end)
+local ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
+local HttpService = cloneref(game:GetService("HttpService"))
+
+local player = Players.LocalPlayer
+
+local WindUI
+
+do
+    local ok, result = pcall(function()
+        return require("./src/Init")
+    end)
+
+    if ok then
+        WindUI = result
+    else
+        if cloneref(game:GetService("RunService")):IsStudio() then
+            WindUI = require(cloneref(ReplicatedStorage:WaitForChild("WindUI"):WaitForChild("Init")))
+        else
+            WindUI =
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+        end
+    end
+end
+
+WindUI:AddTheme({
+    Name = "Dark",
+    Accent = Color3.fromHex("#18181b"),
+    Background = Color3.fromHex("#101010"),
+    Outline = Color3.fromHex("#FFFFFF"),
+    Text = Color3.fromHex("#FFFFFF"),
+    Placeholder = Color3.fromHex("#7a7a7a"),
+    Button = Color3.fromHex("#52525b"),
+    Icon = Color3.fromHex("#a1a1aa"),
+})
+
+local Window = WindUI:CreateWindow({
+    Title = "Final Swarm - Lobby",
+    Folder = "FinalSwarm",
+    Icon = "solar:planet-bold",
+    Theme = "Dark",
+    Acrylic = true,
+    Transparent = true,
+    NewElements = true,
+    HideSearchBar = false,
+})
+
+local Green  = Color3.fromHex("#3B9B5E")
+local Blue   = Color3.fromHex("#5381C6")
+local Purple = Color3.fromHex("#8989D2")
+local Red    = Color3.fromHex("#C16248")
+local LightGray = Color3.fromHex("#D3D3D3")
+local DarkGray  = Color3.fromHex("#6A6A6A")
+
+local UI = {}
+local Tabs = {}
+local S = {
+    SelectedDisplay = nil, SelectedChest = "VoidChest",
+    PurchaseAmount = 1, OpenAmount = 1,
+    AutoOpenAll = false, AutoOpenAllGen = 0,
+    AutoDaily = false, AutoDailyGen = 0,
+    AutoAchievements = false, AutoAchievementsGen = 0,
+    ClaimDailyKeys = false, ClaimDailyKeysGen = 0,
+    BuyDailyItems = false, BuyDailyItemsGen = 0,
+    AutoCodes = false, AutoCodesGen = 0,
+    AutoGrade = false,
+}
+
+local function selectDropdown(element, value)
+    if not element then return end
+    pcall(function()
+        if element.Select then
+            if type(value) == "table" then
+                element:Select(value)
+            else
+                element:Select({ value })
+            end
+        elseif element.Set then
+            element:Set(value)
+        end
+    end)
+end
+
+local function getChestRemote()
+    return ReplicatedStorage
+        :WaitForChild("Packages")
+        :WaitForChild("_Index")
+        :WaitForChild("leifstout_networker@0.3.1")
+        :WaitForChild("networker")
+        :WaitForChild("_remotes")
+        :WaitForChild("ChestService")
+        :WaitForChild("RemoteEvent")
+end
+
+local function getStoreRemote()
+    return ReplicatedStorage
+        :WaitForChild("Packages")
+        :WaitForChild("_Index")
+        :WaitForChild("leifstout_networker@0.3.1")
+        :WaitForChild("networker")
+        :WaitForChild("_remotes")
+        :WaitForChild("Store")
+        :WaitForChild("RemoteFunction")
+end
+
+local function getCodesRemote()
+    return ReplicatedStorage
+        :WaitForChild("Packages")
+        :WaitForChild("_Index")
+        :WaitForChild("leifstout_networker@0.3.1")
+        :WaitForChild("networker")
+        :WaitForChild("_remotes")
+        :WaitForChild("CodesService")
+        :WaitForChild("RemoteFunction")
+end
+
+local GRADE_TOLERANCE = 3
+
+local gradeRemote = nil
+local gradeHookInstalled = false
+local gradeSessionActive = false
+
+local function getInventoryRemote()
+    return ReplicatedStorage
+        :WaitForChild("Packages")
+        :WaitForChild("_Index")
+        :WaitForChild("leifstout_networker@0.3.1")
+        :WaitForChild("networker")
+        :WaitForChild("_remotes")
+        :WaitForChild("InventoryService")
+        :WaitForChild("RemoteFunction")
+end
+
+local function gradeRotationMatches(lineRotation, targetRotation)
+    local diff = math.abs((lineRotation - targetRotation + 180) % 360 - 180)
+    return diff <= GRADE_TOLERANCE
+end
+
+local function clickScreenCenter()
+    pcall(function()
+        local camera = workspace.CurrentCamera
+        if not camera then return end
+        local viewport = camera.ViewportSize
+        local x = viewport.X / 2
+        local y = viewport.Y / 2
+        VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
+        VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
+    end)
+end
+
+local function resolveGradeUI()
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then return nil end
+    local frames = playerGui:FindFirstChild("Frames")
+    if not frames then return nil end
+    local inv = frames:FindFirstChild("MainInventory")
+    if not inv then return nil end
+    local grading = inv:FindFirstChild("ArmorGradingSkillFrame")
+    if not grading then return nil end
+    local skillTest = grading:FindFirstChild("SkillTest")
+    if not skillTest then return nil end
+    local line = skillTest:FindFirstChild("selectionLine")
+    if not line then return nil end
+    local area = skillTest:FindFirstChild("SelectionArea")
+    if not area then return nil end
+    return {
+        grading = grading,
+        skillTest = skillTest,
+        line = line,
+        areas = {
+            area:FindFirstChild("Large"),
+            area:FindFirstChild("Medium"),
+            area:FindFirstChild("Small"),
+        },
+    }
+end
+
+local function runGradeSession()
+    if gradeSessionActive then return end
+    gradeSessionActive = true
+
+    task.spawn(function()
+        local sessionStart = tick()
+        local sawActive = false
+        local hiddenSince = nil
+        local lastClick = 0
+
+        while S.AutoGrade do
+            local ui = resolveGradeUI()
+            local active = ui ~= nil
+                and ui.grading.Visible ~= false
+                and ui.skillTest.Visible ~= false
+                and ui.line.Visible ~= false
+
+            if active then
+                sawActive = true
+                hiddenSince = nil
+
+                local lineRotation = ui.line.Rotation
+                for _, area in ipairs(ui.areas) do
+                    if area and area.Visible and gradeRotationMatches(lineRotation, area.Rotation) then
+                        if tick() - lastClick >= 0.25 then
+                            clickScreenCenter()
+                            lastClick = tick()
+                        end
+                        break
+                    end
+                end
+            else
+                if not sawActive then
+                    if tick() - sessionStart > 10 then break end
+                else
+                    if hiddenSince == nil then
+                        hiddenSince = tick()
+                    elseif tick() - hiddenSince > 1 then
+                        break
+                    end
+                end
+            end
+
+            RunService.Heartbeat:Wait()
+        end
+
+        gradeSessionActive = false
+    end)
+end
+
+local function installGradeHook()
+    if gradeHookInstalled then return true end
+    if not hookmetamethod or not getnamecallmethod then
+        return false
+    end
+
+    local oldNamecall
+    local hookFn = function(self, ...)
+        if S.AutoGrade and getnamecallmethod() == "InvokeServer" then
+            local args = { ... }
+            if type(args[1]) == "string" and args[1] == "startGrading" then
+                local isGradeRemote = (gradeRemote ~= nil and self == gradeRemote)
+                    or (self.Name == "RemoteFunction" and self.Parent ~= nil and self.Parent.Name == "InventoryService")
+                if isGradeRemote then
+                    task.defer(runGradeSession)
+                end
+            end
+        end
+        return oldNamecall(self, ...)
+    end
+
+    if newcclosure then
+        hookFn = newcclosure(hookFn)
+    end
+
+    oldNamecall = hookmetamethod(game, "__namecall", hookFn)
+    gradeHookInstalled = true
+    return true
+end
+
+local function getDisplayName(modelName)
+    if modelName == "WoodenChest" then return "Common" end
+    if modelName == "GoldenChest" then return "Premium" end
+    return (modelName:gsub("Chest$", ""))
+end
+
+local displayValues = {}
+local displayToActual = {}
+local defaultDisplay = nil
+local defaultActual = nil
+local discoveredChests = {}
+
+pcall(function()
+    local assets = ReplicatedStorage:WaitForChild("Assets", 5)
+    if not assets then return end
+    local chests = assets:WaitForChild("Chests", 5)
+    if not chests then return end
+    for _, model in ipairs(chests:GetChildren()) do
+        if model:IsA("Model") then
+            local keyPos = model:FindFirstChild("KeyPosition", true)
+            if keyPos and keyPos:IsA("Attachment") then
+                local display = getDisplayName(model.Name)
+                if display and not displayToActual[display] then
+                    displayToActual[display] = model.Name
+                    table.insert(discoveredChests, { display = display, actual = model.Name })
+                end
+            end
+        end
+    end
+end)
+
+if #discoveredChests == 0 then
+    local defaults = {
+        { display = "Common",  actual = "WoodenChest"  },
+        { display = "Rare",    actual = "RareChest"    },
+        { display = "Epic",    actual = "EpicChest"    },
+        { display = "Premium", actual = "GoldenChest"  },
+    }
+    for _, entry in ipairs(defaults) do
+        if not displayToActual[entry.display] then
+            displayToActual[entry.display] = entry.actual
+            table.insert(discoveredChests, entry)
+        end
+    end
+end
+
+local orderPriority = { Common = 1, Rare = 2, Epic = 3, Premium = 4, Void = 5 }
+table.sort(discoveredChests, function(a, b)
+    local aOrder = orderPriority[a.display] or 999
+    local bOrder = orderPriority[b.display] or 999
+    if aOrder == bOrder then
+        return a.display < b.display
+    end
+    return aOrder < bOrder
+end)
+
+for _, entry in ipairs(discoveredChests) do
+    table.insert(displayValues, entry.display)
+    if entry.display == "Void" and not defaultDisplay then
+        defaultDisplay = entry.display
+        defaultActual = entry.actual
+    end
+end
+
+if not defaultDisplay and #discoveredChests > 0 then
+    defaultDisplay = discoveredChests[1].display
+    defaultActual = discoveredChests[1].actual
+end
+
+if not defaultDisplay then
+    defaultDisplay = "Common"
+    defaultActual = "WoodenChest"
+    if not displayToActual["Common"] then
+        displayToActual["Common"] = "WoodenChest"
+    end
+    if #displayValues == 0 then
+        table.insert(displayValues, "Common")
+    end
+end
+
+S.SelectedDisplay = defaultDisplay
+S.SelectedChest = defaultActual or "VoidChest"
+
+local function getAllCodes()
+    local codes = {}
+    local seen = {}
+    pcall(function()
+        local codeRewards = require(ReplicatedStorage.Shared.Services.CodesService.Modules.CodeRewards)
+        if type(codeRewards) == "table" then
+            for key, _ in pairs(codeRewards) do
+                if type(key) == "string" and not seen[key:lower()] then
+                    seen[key:lower()] = true
+                    table.insert(codes, key)
+                end
+            end
+        end
+    end)
+    local knownCodes = {
+        "VoidExtension", "Release", "Launch", "Update", "Sorry",
+        "FreeKeys", "FreeChests", "Thanks", "Welcome", "Sub",
+        "Group", "Discord", "Twitter",
+    }
+    for _, code in ipairs(knownCodes) do
+        if not seen[code:lower()] then
+            seen[code:lower()] = true
+            table.insert(codes, code)
+        end
+    end
+    return codes
+end
+
+local ChestsTab = Window:Tab({
+    Title = "Chests",
+    Icon = "solar:key-bold",
+    IconColor = LightGray,
+    IconShape = "Square",
+    Border = false,
+})
+table.insert(Tabs, ChestsTab)
+
+local function notifyChests(title, amount, chestType)
+    local content
+    if amount == 1 then
+        content = "1 " .. chestType
+    else
+        content = tostring(amount) .. " " .. chestType .. "s"
+    end
+    WindUI:Notify({
+        Title = title,
+        Content = content,
+        Duration = 5,
+        CanClose = false,
+    })
+end
+
+ChestsTab:Section({
+    Title = "Chests",
+    TextSize = 18,
+    FontWeight = Enum.FontWeight.SemiBold,
+})
+
+ChestsTab:Space()
+
+ChestsTab:Button({
+    Title = "Purchase",
+    Color = Green,
+    Justify = "Center",
+    Callback = function()
+        local Event = getChestRemote()
+        Event:FireServer("PurchaseChest", S.SelectedChest, S.PurchaseAmount)
+        notifyChests("Chests Purchased", S.PurchaseAmount, S.SelectedChest)
+    end,
+})
+
+UI.PurchaseAmountInput = ChestsTab:Input({
+    Title = "Amount",
+    Value = "1",
+    Placeholder = "0 - 1000",
+    Type = "Input",
+    Callback = function(text)
+        local v = tonumber(text)
+        if v then
+            S.PurchaseAmount = math.clamp(math.floor(v), 0, 1000)
+        end
+    end,
+})
+
+ChestsTab:Space()
+
+ChestsTab:Button({
+    Title = "Open",
+    Color = Blue,
+    Justify = "Center",
+    Callback = function()
+        local Event = getChestRemote()
+        Event:FireServer("OpenMultipleChests", S.SelectedChest, S.OpenAmount)
+        notifyChests("Chests Opened", S.OpenAmount, S.SelectedChest)
+    end,
+})
+
+UI.OpenAmountInput = ChestsTab:Input({
+    Title = "Amount",
+    Value = "1",
+    Placeholder = "0 - 1000",
+    Type = "Input",
+    Callback = function(text)
+        local v = tonumber(text)
+        if v then
+            S.OpenAmount = math.clamp(math.floor(v), 0, 1000)
+        end
+    end,
+})
+
+ChestsTab:Space()
+
+UI.ChestDropdown = ChestsTab:Dropdown({
+    Title = "Chest Type",
+    Values = displayValues,
+    Value = defaultDisplay,
+    Multi = false,
+    Callback = function(selected)
+        S.SelectedDisplay = selected
+        S.SelectedChest = displayToActual[selected] or selected
+    end,
+})
+
+ChestsTab:Space()
+
+UI.AutoOpenAllToggle = ChestsTab:Toggle({
+    Title = "Auto Open All",
+    Value = false,
+    Callback = function(state)
+        S.AutoOpenAll = state
+        if state then
+            S.AutoOpenAllGen = S.AutoOpenAllGen + 1
+            local myGen = S.AutoOpenAllGen
+            task.spawn(function()
+                while S.AutoOpenAll and myGen == S.AutoOpenAllGen do
+                    local Event = getChestRemote()
+                    for _, entry in ipairs(discoveredChests) do
+                        if not S.AutoOpenAll or myGen ~= S.AutoOpenAllGen then
+                            break
+                        end
+                        pcall(function()
+                            Event:FireServer("OpenMultipleChests", entry.actual, 1000)
+                        end)
+                    end
+                    task.wait(1)
+                end
+            end)
+            WindUI:Notify({ Title = "Chests", Content = "Auto Open All Enabled", Duration = 3 })
+        else
+            WindUI:Notify({ Title = "Chests", Content = "Auto Open All Disabled", Duration = 3 })
+        end
+    end,
+})
+local MiscTab = Window:Tab({
+    Title = "Misc",
+    Icon = "lucide:target",
+    IconColor = DarkGray,
+    IconShape = "Square",
+    Border = false,
+})
+table.insert(Tabs, MiscTab)
+
+MiscTab:Section({
+    Title = "Extra",
+    TextSize = 18,
+    FontWeight = Enum.FontWeight.SemiBold,
+})
+
+MiscTab:Space()
+
+UI.AutoCodesToggle = MiscTab:Toggle({
+    Title = "Auto Codes",
+    Value = false,
+    Callback = function(state)
+        S.AutoCodes = state
+        if state then
+            S.AutoCodesGen = S.AutoCodesGen + 1
+            local myGen = S.AutoCodesGen
+            task.spawn(function()
+                while S.AutoCodes and myGen == S.AutoCodesGen do
+                    local codes = getAllCodes()
+                    local remote = getCodesRemote()
+                    for _, code in ipairs(codes) do
+                        if not S.AutoCodes or myGen ~= S.AutoCodesGen then
+                            break
+                        end
+                        pcall(function()
+                            remote:InvokeServer("RedeemCode", code)
+                        end)
+                    end
+                    task.wait(5)
+                end
+            end)
+            WindUI:Notify({ Title = "Codes", Content = "Auto Codes Enabled", Duration = 3 })
+        else
+            WindUI:Notify({ Title = "Codes", Content = "Auto Codes Disabled", Duration = 3 })
+        end
+    end,
+})
+
+MiscTab:Space()
+
+UI.AutoGradeToggle = MiscTab:Toggle({
+    Title = "Auto Grade",
+    Value = false,
+    Callback = function(state)
+        S.AutoGrade = state
+        if state then
+            task.spawn(function()
+                pcall(function()
+                    gradeRemote = getInventoryRemote()
+                end)
+            end)
+
+            if installGradeHook() then
+                WindUI:Notify({ Title = "Grade", Content = "Auto Grade Enabled", Duration = 3 })
+                if resolveGradeUI() then
+                    task.defer(runGradeSession)
+                end
+            else
+                S.AutoGrade = false
+                WindUI:Notify({ Title = "Grade", Content = "Auto Grade not supported by your executor!", Duration = 5 })
+                task.defer(function()
+                    if UI.AutoGradeToggle and UI.AutoGradeToggle.Set then
+                        pcall(function() UI.AutoGradeToggle:Set(false) end)
+                    end
+                end)
+            end
+        else
+            WindUI:Notify({ Title = "Grade", Content = "Auto Grade Disabled", Duration = 3 })
+        end
+    end,
+})
+
+MiscTab:Space()
+
+MiscTab:Section({
+    Title = "Shop",
+    TextSize = 18,
+    FontWeight = Enum.FontWeight.SemiBold,
+})
+
+MiscTab:Space()
+
+UI.ClaimDailyKeysToggle = MiscTab:Toggle({
+    Title = "Claim Daily Keys",
+    Value = false,
+    Callback = function(state)
+        S.ClaimDailyKeys = state
+        if state then
+            S.ClaimDailyKeysGen = S.ClaimDailyKeysGen + 1
+            local myGen = S.ClaimDailyKeysGen
+            task.spawn(function()
+                while S.ClaimDailyKeys and myGen == S.ClaimDailyKeysGen do
+                    if S.ClaimDailyKeys and myGen == S.ClaimDailyKeysGen then
+                        pcall(function()
+                            local remote = getStoreRemote()
+                            remote:InvokeServer("purchaseItem", 5)
+                        end)
+                    end
+                    task.wait(1)
+                end
+            end)
+            WindUI:Notify({ Title = "Shop", Content = "Claim Daily Keys Enabled", Duration = 3 })
+        else
+            WindUI:Notify({ Title = "Shop", Content = "Claim Daily Keys Disabled", Duration = 3 })
+        end
+    end,
+})
+
+MiscTab:Space()
+
+UI.BuyDailyItemsToggle = MiscTab:Toggle({
+    Title = "Buy Daily Items",
+    Value = false,
+    Callback = function(state)
+        S.BuyDailyItems = state
+        if state then
+            S.BuyDailyItemsGen = S.BuyDailyItemsGen + 1
+            local myGen = S.BuyDailyItemsGen
+            task.spawn(function()
+                while S.BuyDailyItems and myGen == S.BuyDailyItemsGen do
+                    for i = 1, 4 do
+                        if not S.BuyDailyItems or myGen ~= S.BuyDailyItemsGen then
+                            break
+                        end
+                        pcall(function()
+                            local remote = getStoreRemote()
+                            remote:InvokeServer("purchaseItem", i)
+                        end)
+                    end
+                    task.wait(1)
+                end
+            end)
+            WindUI:Notify({ Title = "Shop", Content = "Buy Daily Items Enabled", Duration = 3 })
+        else
+            WindUI:Notify({ Title = "Shop", Content = "Buy Daily Items Disabled", Duration = 3 })
+        end
+    end,
+})
+
+MiscTab:Space()
+
+MiscTab:Section({
+    Title = "Quests",
+    TextSize = 18,
+    FontWeight = Enum.FontWeight.SemiBold,
+})
+
+MiscTab:Space()
+
+local function getQuestsRemote()
+    return ReplicatedStorage
+        :WaitForChild("Packages")
+        :WaitForChild("_Index")
+        :WaitForChild("leifstout_networker@0.3.1")
+        :WaitForChild("networker")
+        :WaitForChild("_remotes")
+        :WaitForChild("Quests")
+        :WaitForChild("RemoteFunction")
+end
+
+local FALLBACK_ACHIEVEMENTS = {
+    "ach_bosses", "ach_chests_opened", "ach_daily_logins", "ach_final_swarm",
+    "ach_keys_earned", "ach_playtime", "ach_quests_complete", "ach_total_kills",
+    "ach_total_waves",
+}
+
+local function getAchievementNames()
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then return FALLBACK_ACHIEVEMENTS end
+
+    local ok, scroll = pcall(function()
+        return playerGui
+            :WaitForChild("Frames", 3)
+            :WaitForChild("Quests", 3)
+            :WaitForChild("ScrollFrameCanvas", 3)
+            :WaitForChild("PassesScroll", 3)
+    end)
+
+    if not ok or not scroll then
+        return FALLBACK_ACHIEVEMENTS
+    end
+
+    local excluded = {
+        AchievementTemplate = true,
+        AchievementsTitle   = true,
+        QuestTemplateRed    = true,
+    }
+
+    local prefix = "Achievement_"
+    local names = {}
+    for _, child in ipairs(scroll:GetChildren()) do
+        if child:IsA("Frame") and not excluded[child.Name] then
+            local name = child.Name
+            if name:sub(1, #prefix) == prefix then
+                name = name:sub(#prefix + 1)
+            end
+            if name ~= "" then
+                table.insert(names, name)
+            end
+        end
+    end
+
+    if #names == 0 then
+        return FALLBACK_ACHIEVEMENTS
+    end
+    return names
+end
+
+UI.AutoDailyToggle = MiscTab:Toggle({
+    Title = "Auto Daily",
+    Value = false,
+    Callback = function(state)
+        S.AutoDaily = state
+        if state then
+            S.AutoDailyGen = S.AutoDailyGen + 1
+            local myGen = S.AutoDailyGen
+            task.spawn(function()
+                while S.AutoDaily and myGen == S.AutoDailyGen do
+                    for i = 1, 3 do
+                        if not S.AutoDaily or myGen ~= S.AutoDailyGen then
+                            break
+                        end
+                        pcall(function()
+                            local remote = getQuestsRemote()
+                            remote:InvokeServer("claimDaily", i)
+                        end)
+                    end
+
+                    for i = 1, 7 do
+                        if not S.AutoDaily or myGen ~= S.AutoDailyGen then
+                            break
+                        end
+                        pcall(function()
+                            local remote = getQuestsRemote()
+                            remote:InvokeServer("claimStreak", i)
+                        end)
+                    end
+                    task.wait(2)
+                end
+            end)
+        end
+    end,
+})
+
+MiscTab:Space()
+
+UI.AutoAchievementsToggle = MiscTab:Toggle({
+    Title = "Auto Achievements",
+    Value = false,
+    Callback = function(state)
+        S.AutoAchievements = state
+        if state then
+            S.AutoAchievementsGen = S.AutoAchievementsGen + 1
+            local myGen = S.AutoAchievementsGen
+            task.spawn(function()
+                while S.AutoAchievements and myGen == S.AutoAchievementsGen do
+                    local remote = getQuestsRemote()
+                    local achievementNames = getAchievementNames()
+                    for _, name in ipairs(achievementNames) do
+                        if not S.AutoAchievements or myGen ~= S.AutoAchievementsGen then
+                            break
+                        end
+                        pcall(function()
+                            remote:InvokeServer("claimAchievement", name)
+                        end)
+                    end
+                    task.wait(2)
+                end
+            end)
+        end
+    end,
+})
+
+local ConfigTab = Window:Tab({
+    Title = "Config",
+    Icon = "solar:settings-bold",
+    IconColor = LightGray,
+    IconShape = "Square",
+    Border = false,
+})
+table.insert(Tabs, ConfigTab)
+
+ConfigTab:Section({
+    Title = "Config Manager",
+    TextSize = 18,
+    FontWeight = Enum.FontWeight.SemiBold,
+})
+
+ConfigTab:Space()
+
+local ConfigFolder = "FinalSwarm_Configs"
+if isfolder and not isfolder(ConfigFolder) then
+    pcall(function() makefolder(ConfigFolder) end)
+end
+
+local currentConfigName = ""
+
+local ConfigNameInput = ConfigTab:Input({
+    Title = "Config Name",
+    Placeholder = "Enter config name...",
+    Type = "Input",
+    Callback = function(text)
+        currentConfigName = text
+    end
+})
+
+ConfigTab:Space()
+
+local function getConfigFiles()
+    local files = {}
+    pcall(function()
+        local list = listfiles(ConfigFolder)
+        for _, file in ipairs(list) do
+            local name = file:match(".+[\\/](.+)%.json$")
+            if name then
+                table.insert(files, name)
+            end
+        end
+    end)
+    return files
+end
+
+local ConfigsDropdown = ConfigTab:Dropdown({
+    Title = "Saved Configs",
+    Values = getConfigFiles(),
+    Multi = false,
+    Callback = function(val)
+        currentConfigName = val
+        if ConfigNameInput and ConfigNameInput.Set then
+            ConfigNameInput:Set(val)
+        end
+    end
+})
+
+ConfigTab:Space()
+
+local function safeSet(element, value)
+    if element and element.Set then
+        pcall(function()
+            element:Set(value)
+        end)
+    end
+end
+
+local function getStateTable()
+    return {
+        SelectedChestType = S.SelectedDisplay,
+        PurchaseAmount = S.PurchaseAmount,
+        OpenAmount = S.OpenAmount,
+        AutoOpenAll = S.AutoOpenAll,
+        AutoDailyEnabled = S.AutoDaily,
+        AutoAchievementsEnabled = S.AutoAchievements,
+        ClaimDailyKeys = S.ClaimDailyKeys,
+        BuyDailyItems = S.BuyDailyItems,
+        AutoCodes = S.AutoCodes,
+        AutoGrade = S.AutoGrade,
+    }
+end
+
+local function getMergedStateTable()
+    return getStateTable()
+end
+
+local function applyStateTable(state)
+    local deadline = tick() + 10
+    while tick() < deadline do
+        if UI.ChestDropdown and UI.AutoGradeToggle then
+            break
+        end
+        task.wait(0.1)
+    end
+
+    local chestType = state.SelectedChestType or state.SelectedDisplay
+    if chestType and displayToActual[chestType] then
+        S.SelectedDisplay = chestType
+        S.SelectedChest = displayToActual[chestType] or chestType
+        selectDropdown(UI.ChestDropdown, chestType)
+    end
+    if state.PurchaseAmount then
+        safeSet(UI.PurchaseAmountInput, tostring(state.PurchaseAmount))
+    end
+    if state.OpenAmount then
+        safeSet(UI.OpenAmountInput, tostring(state.OpenAmount))
+    end
+    if state.AutoOpenAll ~= nil then safeSet(UI.AutoOpenAllToggle, state.AutoOpenAll) end
+    if state.AutoDailyEnabled ~= nil then safeSet(UI.AutoDailyToggle, state.AutoDailyEnabled) end
+    if state.AutoAchievementsEnabled ~= nil then safeSet(UI.AutoAchievementsToggle, state.AutoAchievementsEnabled) end
+    if state.ClaimDailyKeys ~= nil then safeSet(UI.ClaimDailyKeysToggle, state.ClaimDailyKeys) end
+    if state.BuyDailyItems ~= nil then safeSet(UI.BuyDailyItemsToggle, state.BuyDailyItems) end
+    if state.AutoCodes ~= nil then safeSet(UI.AutoCodesToggle, state.AutoCodes) end
+    if state.AutoGrade ~= nil then safeSet(UI.AutoGradeToggle, state.AutoGrade) end
+end
+
+ConfigTab:Button({
+    Title = "Create / Overwrite",
+    Color = Green,
+    Icon = "",
+    Justify = "Center",
+    Callback = function()
+        if currentConfigName == "" then
+            WindUI:Notify({ Title = "Config", Content = "Please enter a name!", Duration = 3 })
+            return
+        end
+        local path = ConfigFolder .. "/" .. currentConfigName .. ".json"
+        local fileExists = isfile and isfile(path)
+        local json = HttpService:JSONEncode(getMergedStateTable())
+        local success, err = pcall(function()
+            writefile(path, json)
+        end)
+        if success then
+            ConfigsDropdown:Refresh(getConfigFiles())
+            if fileExists then
+                WindUI:Notify({ Title = "Config", Content = "Overwrote " .. currentConfigName, Duration = 3 })
+            else
+                WindUI:Notify({ Title = "Config", Content = "Created " .. currentConfigName, Duration = 3 })
+            end
+        else
+            WindUI:Notify({ Title = "Config", Content = "Save Error: " .. tostring(err), Duration = 5 })
+        end
+    end,
+})
+
+ConfigTab:Space()
+
+ConfigTab:Button({
+    Title = "Load Config",
+    Color = Blue,
+    Icon = "",
+    Justify = "Center",
+    Callback = function()
+        if currentConfigName == "" then
+            WindUI:Notify({ Title = "Config", Content = "Please enter or select a name!", Duration = 3 })
+            return
+        end
+        local path = ConfigFolder .. "/" .. currentConfigName .. ".json"
+        if not (isfile and isfile(path)) then
+            WindUI:Notify({ Title = "Config", Content = "Config file not found!", Duration = 3 })
+            return
+        end
+        local success, err = pcall(function()
+            local json = readfile(path)
+            local state = HttpService:JSONDecode(json)
+            applyStateTable(state)
+        end)
+        if success then
+            WindUI:Notify({ Title = "Config", Content = "Loaded " .. currentConfigName, Duration = 3 })
+        else
+            WindUI:Notify({ Title = "Config", Content = "Load Error: " .. tostring(err), Duration = 5 })
+        end
+    end,
+})
+
+ConfigTab:Space()
+
+ConfigTab:Button({
+    Title = "Delete Config",
+    Color = Red,
+    Icon = "",
+    Justify = "Center",
+    Callback = function()
+        if currentConfigName == "" then
+            WindUI:Notify({ Title = "Config", Content = "Please enter or select a name!", Duration = 3 })
+            return
+        end
+        local path = ConfigFolder .. "/" .. currentConfigName .. ".json"
+        if isfile and isfile(path) then
+            pcall(function() delfile(path) end)
+            ConfigsDropdown:Refresh(getConfigFiles())
+            WindUI:Notify({ Title = "Config", Content = "Deleted " .. currentConfigName, Duration = 3 })
+        else
+            WindUI:Notify({ Title = "Config", Content = "Config not found!", Duration = 3 })
+        end
+    end,
+})
+
+ConfigTab:Space()
+
+ConfigTab:Button({
+    Title = "Autoload",
+    Color = Purple,
+    Icon = "",
+    Justify = "Center",
+    Callback = function()
+        if currentConfigName == "" then
+            WindUI:Notify({ Title = "Config", Content = "Please enter or select a config name first!", Duration = 3 })
+            return
+        end
+        local path = ConfigFolder .. "/" .. currentConfigName .. ".json"
+        if not (isfile and isfile(path)) then
+            WindUI:Notify({ Title = "Config", Content = "Config does not exist! Save it first.", Duration = 4 })
+            return
+        end
+        pcall(function()
+            writefile(ConfigFolder .. "/autoload.txt", currentConfigName)
+        end)
+        WindUI:Notify({ Title = "Config", Content = "'" .. currentConfigName .. "' will AutoLoad on launch!", Duration = 4 })
+    end,
+})
+
+task.spawn(function()
+    task.wait(2)
+    local autoloadPath = ConfigFolder .. "/autoload.txt"
+    if isfile and isfile(autoloadPath) then
+        local successName, configName = pcall(function() return readfile(autoloadPath) end)
+        if successName and configName and configName ~= "" then
+            local path = ConfigFolder .. "/" .. configName .. ".json"
+            if isfile and isfile(path) then
+                local successLoad, err = pcall(function()
+                    local json = readfile(path)
+                    local state = HttpService:JSONDecode(json)
+                    applyStateTable(state)
+                end)
+                if successLoad then
+                    WindUI:Notify({ Title = "Config", Content = "AutoLoaded '" .. configName .. "'", Duration = 3 })
+                else
+                    WindUI:Notify({ Title = "Config", Content = "AutoLoad Error: " .. tostring(err), Duration = 5 })
+                end
+            else
+                WindUI:Notify({ Title = "Config", Content = "AutoLoad config '" .. configName .. "' not found!", Duration = 5 })
+            end
+        end
+    end
+end)
+
+ConfigTab:Space()
+
+ConfigTab:Section({
+    Title = "Appearance",
+    TextSize = 18,
+    FontWeight = Enum.FontWeight.SemiBold,
+})
+
+ConfigTab:Space()
+
+local ALLOWED_THEMES = {
+    ["Amber"] = true,
+    ["CottonCandy"] = true,
+    ["Crimson"] = true,
+    ["MonokaiPro"] = true,
+    ["Dark"] = true
+}
+
+local themeNames = {}
+for name in pairs(WindUI:GetThemes()) do
+    if ALLOWED_THEMES[name] then
+        table.insert(themeNames, name)
+    end
+end
+table.sort(themeNames)
+
+local ThemeDropdown = ConfigTab:Dropdown({
+    Title = "Theme",
+    Values = themeNames,
+    Value = WindUI:GetCurrentTheme(),
+    Multi = false,
+    Callback = function(selected)
+        WindUI:SetTheme(selected)
+    end,
+})
+
+ConfigTab:Space()
+
+ConfigTab:Toggle({
+    Title = "Acrylic",
+    Value = WindUI.Window.Acrylic,
+    Callback = function()
+        local isOn = WindUI.Window.Acrylic
+        WindUI:ToggleAcrylic(not isOn)
+    end,
+})
+
+ConfigTab:Space()
+
+ConfigTab:Toggle({
+    Title = "Transparent",
+    Value = WindUI:GetTransparency(),
+    Callback = function(state)
+        Window:ToggleTransparency(state)
+    end,
+})
+
+do
+    local tabIcons = {}
+
+    local function findIconHolder(tab)
+        local ok, holder = pcall(function()
+            local parent = tab.Button and tab.Button.Parent
+            if not parent then return nil end
+            for _, child in ipairs(parent:GetChildren()) do
+                if child:IsA("Frame") and child:FindFirstChildOfClass("UICorner") then
+                    local iconLabel = child:FindFirstChildOfClass("ImageLabel", true)
+                        or child:FindFirstChildOfClass("ImageButton")
+                    if iconLabel then
+                        return child
+                    end
+                end
+            end
+            return nil
+        end)
+        if ok then return holder end
+        return nil
+    end
+
+    task.delay(1, function()
+        local squareRadius = nil
+        for _, tab in ipairs(Tabs) do
+            local holder = findIconHolder(tab)
+            if holder then
+                local iconCorner = holder:FindFirstChildOfClass("UICorner")
+                if iconCorner then
+                    squareRadius = squareRadius or iconCorner.CornerRadius
+                    if not tabIcons[tab] then
+                        tabIcons[tab] = iconCorner
+                    end
+                end
+            end
+        end
+
+        if not squareRadius then
+            squareRadius = UDim.new(0, 4)
+        end
+
+        local selectedTab = nil
+        local function animateShape(tab, radius)
+            local corner = tabIcons[tab]
+            if not corner then return end
+            local tween = TweenService:Create(
+                corner,
+                TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                { CornerRadius = radius }
+            )
+            tween:Play()
+        end
+
+        pcall(function()
+            Window:OnTabSelect(function(tab)
+                if selectedTab and selectedTab ~= tab then
+                    animateShape(selectedTab, squareRadius)
+                end
+                if tab then
+                    animateShape(tab, UDim.new(1, 0))
+                end
+                selectedTab = tab
+            end)
+        end)
+
+        task.delay(0.5, function()
+            pcall(function()
+                Window:SelectTab(1)
+            end)
+        end)
+    end)
+end
+
+local keybindOk = false
+pcall(function()
+    Window:SetToggleKey(Enum.KeyCode.LeftControl)
+    keybindOk = true
+end)
+
+if not keybindOk then
+    local uiVisible = true
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if input.KeyCode == Enum.KeyCode.LeftControl then
+            uiVisible = not uiVisible
+            pcall(function()
+                if Window.Toggle then
+                    Window:Toggle(uiVisible)
+                elseif Window.Show and Window.Hide then
+                    if uiVisible then Window:Show() else Window:Hide() end
+                end
+            end)
+        end
+    end)
+end
+
+WindUI:Notify({
+    Title = "PrismHub",
+    Content = "Final Swarm Lobby loaded. Press Left Ctrl to toggle the UI.",
+    Duration = 10,
+    CanClose = true,
+})
