@@ -1625,7 +1625,6 @@ task.spawn(function()
                     applyStateTable(state)
                 end)
                 if successLoad then
-                    WindUI:Notify({ Title = "Config", Content = "AutoLoaded '" .. configName .. "'", Duration = 3 })
                 else
                     WindUI:Notify({ Title = "Config", Content = "AutoLoad Error: " .. tostring(err), Duration = 5 })
                 end
@@ -1635,6 +1634,73 @@ task.spawn(function()
         end
     end
 end)
+
+ConfigTab:Space()
+
+local currentKey = Enum.KeyCode.LeftControl
+local listening = false
+local listenConn = nil
+
+local function applyToggleKey(key)
+    task.delay(0.1, function()
+        pcall(function()
+            Window:SetToggleKey(key)
+        end)
+    end)
+end
+
+local function refreshKeybindTitle()
+    pcall(function()
+        if UI.KeybindButton and UI.KeybindButton.SetTitle then
+            UI.KeybindButton:SetTitle("UI Toggle Key: " .. currentKey.Name)
+        end
+    end)
+end
+
+UI.KeybindButton = ConfigTab:Button({
+    Title = "UI Toggle Key: " .. currentKey.Name,
+    Color = Color3.fromHex("#52525b"),
+    Justify = "Center",
+    Callback = function()
+        if listening then
+            if listenConn then
+                listenConn:Disconnect()
+                listenConn = nil
+            end
+            listening = false
+            applyToggleKey(currentKey)
+            return
+        end
+
+        listening = true
+        pcall(function()
+            Window:SetToggleKey(Enum.KeyCode.F24)
+        end)
+        refreshKeybindTitle()
+
+        listenConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if gameProcessed then
+                listenConn:Disconnect()
+                listenConn = nil
+                listening = false
+                applyToggleKey(currentKey)
+                return
+            end
+            local key = input.KeyCode
+            if key == Enum.KeyCode.Unknown then return end
+            listenConn:Disconnect()
+            listenConn = nil
+            listening = false
+            if typeof(key) == "EnumItem" then
+                currentKey = key
+            end
+            refreshKeybindTitle()
+            applyToggleKey(currentKey)
+        end)
+    end,
+})
+
+applyToggleKey(currentKey)
 
 ConfigTab:Space()
 
@@ -1766,32 +1832,9 @@ do
     end)
 end
 
-local keybindOk = false
-pcall(function()
-    Window:SetToggleKey(Enum.KeyCode.LeftControl)
-    keybindOk = true
-end)
-
-if not keybindOk then
-    local uiVisible = true
-    UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if gameProcessed then return end
-        if input.KeyCode == Enum.KeyCode.LeftControl then
-            uiVisible = not uiVisible
-            pcall(function()
-                if Window.Toggle then
-                    Window:Toggle(uiVisible)
-                elseif Window.Show and Window.Hide then
-                    if uiVisible then Window:Show() else Window:Hide() end
-                end
-            end)
-        end
-    end)
-end
-
 WindUI:Notify({
-    Title = "PrismHub",
-    Content = "Final Swarm Main loaded. Press Left Ctrl to toggle the UI.",
+    Title = "Prism Hub",
+    Content = "Game Detected: Final Swarm",
     Duration = 10,
     CanClose = true,
 })
