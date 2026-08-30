@@ -1,0 +1,1682 @@
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local VirtualUser = game:GetService("VirtualUser")
+local TweenService = game:GetService("TweenService")
+
+local cloneref = (cloneref or clonereference or function(instance)
+    return instance
+end)
+local ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
+local HttpService = cloneref(game:GetService("HttpService"))
+
+local player = Players.LocalPlayer
+
+local WindUI
+
+do
+    local ok, result = pcall(function()
+        return require("./src/Init")
+    end)
+
+    if ok then
+        WindUI = result
+    else
+        if cloneref(game:GetService("RunService")):IsStudio() then
+            WindUI = require(cloneref(ReplicatedStorage:WaitForChild("WindUI"):WaitForChild("Init")))
+        else
+            WindUI =
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+        end
+    end
+end
+
+WindUI:AddTheme({
+    Name = "Dark",
+    Accent = Color3.fromHex("#18181b"),
+    Background = Color3.fromHex("#101010"),
+    Outline = Color3.fromHex("#FFFFFF"),
+    Text = Color3.fromHex("#FFFFFF"),
+    Placeholder = Color3.fromHex("#7a7a7a"),
+    Button = Color3.fromHex("#52525b"),
+    Icon = Color3.fromHex("#a1a1aa"),
+})
+
+local Window = WindUI:CreateWindow({
+    Title = "Final Swarm - Raid",
+    Folder = "FinalSwarm",
+    Icon = "solar:planet-bold",
+    Theme = "Dark",
+    Acrylic = true,
+    Transparent = true,
+    NewElements = true,
+    HideSearchBar = false,
+})
+
+local Green  = Color3.fromHex("#3B9B5E")
+local Blue   = Color3.fromHex("#5381C6")
+local Purple = Color3.fromHex("#8989D2")
+local Red    = Color3.fromHex("#C16248")
+local LightGray = Color3.fromHex("#D3D3D3")
+local DarkGray  = Color3.fromHex("#6A6A6A")
+
+local UI = {}
+local Tabs = {}
+local S = {
+    OrbitEnabled = false,
+    Orbit = { radius = 100, speed = 5, centerX = 0, centerZ = 0, angle = 0 },
+    Hover = { enabled = false, height = 30 },
+    AntiAfk = false,
+    DisableAntiCheat = false,
+    AutoPick = false, SelectedMethod = "Standard",
+    CustomList = {},
+    RemoveEffects = false, Anonymous = false,
+    originalDevMouseLock = nil,
+    orbitConnection = nil, idledConnection = nil, hoverPlatform = nil,
+    Loading = false,
+}
+
+local function getHumanoidRootPart()
+    local char = player.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        return char.HumanoidRootPart
+    end
+    return nil
+end
+
+local function clearHoverPlatform()
+    if S.hoverPlatform then
+        S.hoverPlatform:Destroy()
+        S.hoverPlatform = nil
+    end
+end
+
+local function selectDropdown(element, value)
+    if not element then return end
+    pcall(function()
+        if element.Select then
+            if type(value) == "table" then
+                element:Select(value)
+            else
+                element:Select({ value })
+            end
+        elseif element.Set then
+            element:Set(value)
+        end
+    end)
+end
+
+local function getGameServiceRemote()
+    return ReplicatedStorage
+        :WaitForChild("Packages")
+        :WaitForChild("_Index")
+        :WaitForChild("leifstout_networker@0.3.0")
+        :WaitForChild("networker")
+        :WaitForChild("_remotes")
+        :WaitForChild("GameService")
+        :WaitForChild("RemoteEvent")
+end
+
+local ALL_ITEMS = {
+    "Armor Epic", "Armor Rare", "Attack Speed Common", "Attack Speed Epic",
+    "Attack Speed Legendary", "Attack Speed Rare", "Aura", "Axe", "Ban Hammer",
+    "Bananarang", "Black Hole Cannon", "Blaze", "Bolt", "Crit Chance Common",
+    "Crit Chance Rare", "Daggers", "Damage Common", "Damage Epic",
+    "Damage Legendary", "Damage Rare", "Demon Slayer", "Extra Jump Legendary",
+    "Firestaff", "Flame Walker", "Flamethrower", "Freeze", "Frost Walker",
+    "Giant's Strength", "Health Common", "Health Epic", "Health Legendary",
+    "Health Rare", "Laserbeam", "Lifesteal Epic", "Lifesteal Rare",
+    "Lightning Staff", "Luck Common", "Luck Epic", "Luck Legendary", "Luck Rare",
+    "Meteor", "Missile", "Movement Speed Common", "Movement Speed Epic",
+    "Movement Speed Legendary", "Movement Speed Rare", "Multishot", "Ninja Star",
+    "Perilous Fervor", "Piercing Rare", "Poision Flask", "Power Trio",
+    "Projectile Count Epic", "Projectile Count Legendary", "Projectile Speed Common",
+    "Projectile Speed Epic", "Projectile Speed Rare", "Regen Common", "Regen Epic",
+    "Regen Rare", "Revolver", "Ricochet Rare", "Shotgun", "Size Epic",
+    "Size Legendary", "Size Rare", "Sniper", "Soul of Swiftness", "Spike Ball",
+    "Sword", "Thorns Rare", "Tornado", "Trident", "Void Scythe", "Wind Blessing",
+    "XP Gain Epic", "XP Gain Legendary", "XP Gain Rare",
+}
+
+local DEFAULT_CUSTOM_LIST = {
+    "Black Hole Cannon", "Void Scythe", "Trident", "Ban Hammer", "Poision Flask",
+    "Firestaff", "Missile", "Revolver", "Ninja Star", "Spike Ball", "Bananarang",
+    "Shotgun", "Lightning Staff", "Daggers", "Sword", "Axe", "Frost Walker",
+    "Flame Walker", "Sniper", "Aura", "Meteor", "Laserbeam", "Flamethrower",
+    "Tornado", "Multishot", "Projectile Count Legendary", "Power Trio",
+    "Damage Legendary", "XP Gain Legendary", "Size Legendary",
+    "Attack Speed Legendary", "Luck Legendary", "Health Legendary",
+    "Movement Speed Legendary", "Extra Jump Legendary", "Projectile Count Epic",
+    "Bolt", "Giant's Strength", "Damage Epic", "XP Gain Epic", "Soul of Swiftness",
+    "Attack Speed Epic", "Lifesteal Epic", "Size Epic", "Projectile Speed Epic",
+    "Wind Blessing", "Health Epic", "Luck Epic", "Armor Epic", "Regen Epic",
+    "Movement Speed Epic", "Freeze", "Demon Slayer", "Damage Rare",
+    "Crit Chance Rare", "Projectile Speed Rare", "Blaze", "Size Rare",
+    "Attack Speed Rare", "Ricochet Rare", "Health Rare", "XP Gain Rare",
+    "Luck Rare", "Piercing Rare", "Lifesteal Rare", "Thorns Rare", "Armor Rare",
+    "Perilous Fervor", "Regen Rare", "Movement Speed Rare", "Damage Common",
+    "Attack Speed Common", "Projectile Speed Common", "Health Common",
+    "Crit Chance Common", "Luck Common", "Regen Common", "Movement Speed Common",
+}
+
+local ITEM_ALIASES = {
+    ["Poison Flask"] = "Poision Flask",
+}
+
+local function canonicalItemName(name)
+    return ITEM_ALIASES[name] or name
+end
+
+local function parseListText(text)
+    local list = {}
+    for entry in string.gmatch(text or "", "[^,]+") do
+        entry = entry:gsub("^%s+", ""):gsub("%s+$", "")
+        if entry ~= "" then
+            table.insert(list, entry)
+        end
+    end
+    return list
+end
+
+local MovementTab = Window:Tab({
+    Title = "Movement",
+    Icon = "solar:wind-bold",
+    IconColor = LightGray,
+    IconShape = "Square",
+    Border = false,
+})
+table.insert(Tabs, MovementTab)
+
+player.CharacterAdded:Connect(function()
+    clearHoverPlatform()
+end)
+
+MovementTab:Section({
+    Title = "Orbit",
+    TextSize = 18,
+    FontWeight = Enum.FontWeight.SemiBold,
+})
+
+MovementTab:Space()
+
+local function getOrbitCenter()
+    local spawnPart = nil
+    pcall(function()
+        spawnPart = workspace:WaitForChild("Map", 10):WaitForChild("SpawnPart", 10)
+    end)
+    if spawnPart and spawnPart:IsA("BasePart") then
+        return spawnPart.Position.X, spawnPart.Position.Z
+    end
+    return 0, 0
+end
+
+local spawnX, spawnZ = getOrbitCenter()
+S.Orbit.centerX = spawnX
+S.Orbit.centerZ = spawnZ
+
+local function updateOrbit(deltaTime)
+    local rootPart = getHumanoidRootPart()
+    if not rootPart then return end
+    local dt = math.min(deltaTime, 0.1)
+    S.Orbit.angle = (S.Orbit.angle + S.Orbit.speed * 6 * dt) % 360
+    local currentY = rootPart.Position.Y
+    local radAngle = math.rad(S.Orbit.angle)
+    local x = S.Orbit.centerX + S.Orbit.radius * math.cos(radAngle)
+    local z = S.Orbit.centerZ + S.Orbit.radius * math.sin(radAngle)
+    rootPart.CFrame = CFrame.new(x, currentY, z) * CFrame.Angles(0, math.rad(S.Orbit.angle + 90), 0)
+end
+
+UI.OrbitToggle = MovementTab:Toggle({
+    Title = "Orbit Enabled",
+    Value = false,
+    Callback = function(state)
+        S.OrbitEnabled = state
+        if state then
+            S.orbitConnection = RunService.RenderStepped:Connect(updateOrbit)
+            if not S.Loading then
+                WindUI:Notify({ Title = "Movement", Content = "Orbit Enabled", Duration = 3 })
+            end
+        else
+            if S.orbitConnection then
+                S.orbitConnection:Disconnect()
+                S.orbitConnection = nil
+            end
+            if not S.Loading then
+                WindUI:Notify({ Title = "Movement", Content = "Orbit Disabled", Duration = 3 })
+            end
+        end
+    end,
+})
+
+MovementTab:Space()
+
+UI.RadiusSlider = MovementTab:Slider({
+    Title = "Radius",
+    IsTooltip = true,
+    Step = 1,
+    Value = { Min = 0, Max = 250, Default = 100 },
+    Callback = function(value) S.Orbit.radius = value end,
+})
+
+MovementTab:Space()
+
+UI.SpeedSlider = MovementTab:Slider({
+    Title = "Speed",
+    IsTooltip = true,
+    Step = 1,
+    Value = { Min = 0, Max = 25, Default = 5 },
+    Callback = function(value) S.Orbit.speed = value end,
+})
+
+MovementTab:Space()
+
+MovementTab:Section({
+    Title = "Hover",
+    TextSize = 18,
+    FontWeight = Enum.FontWeight.SemiBold,
+})
+
+MovementTab:Space()
+
+local platformCurrentY = 0
+
+local function ensureHoverPlatform(rootPart)
+    if not S.hoverPlatform or not S.hoverPlatform.Parent then
+        for _, child in ipairs(workspace:GetChildren()) do
+            if child.Name == "HoverPlatform" then
+                child:Destroy()
+            end
+        end
+        clearHoverPlatform()
+        S.hoverPlatform = Instance.new("Part")
+        S.hoverPlatform.Name = "HoverPlatform"
+        S.hoverPlatform.Size = Vector3.new(6, 2, 6)
+        S.hoverPlatform.Transparency = 1
+        S.hoverPlatform.CanCollide = true
+        S.hoverPlatform.CanQuery = false
+        S.hoverPlatform.CanTouch = false
+        S.hoverPlatform.Anchored = true
+        platformCurrentY = rootPart.Position.Y - 3.5
+        S.hoverPlatform.CFrame = CFrame.new(rootPart.Position.X, platformCurrentY, rootPart.Position.Z)
+        S.hoverPlatform.Parent = workspace
+    end
+end
+
+local function updateHover()
+    if not S.Hover.enabled then return end
+    local rootPart = getHumanoidRootPart()
+    if not rootPart then return end
+    ensureHoverPlatform(rootPart)
+    local rayOrigin = rootPart.Position
+    local rayDirection = Vector3.new(0, -500, 0)
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = { player.Character, S.hoverPlatform }
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+    if result then
+        local groundY = result.Position.Y
+        local targetY = groundY + S.Hover.height
+        local distToPlatform = rootPart.Position.Y - platformCurrentY
+        if distToPlatform < 3.0 then
+            platformCurrentY = rootPart.Position.Y - 3.5
+        else
+            platformCurrentY = platformCurrentY + (targetY - platformCurrentY) * 0.05
+        end
+        S.hoverPlatform.CFrame = CFrame.new(rootPart.Position.X, platformCurrentY, rootPart.Position.Z)
+    end
+end
+
+RunService.Heartbeat:Connect(function()
+    updateHover()
+end)
+
+UI.HoverToggle = MovementTab:Toggle({
+    Title = "Hover Enabled",
+    Value = false,
+    Callback = function(state)
+        S.Hover.enabled = state
+        if state then
+            if not S.Loading then
+                WindUI:Notify({ Title = "Movement", Content = "Hover Enabled", Duration = 3 })
+            end
+        else
+            clearHoverPlatform()
+            if not S.Loading then
+                WindUI:Notify({ Title = "Movement", Content = "Hover Disabled", Duration = 3 })
+            end
+        end
+    end,
+})
+
+MovementTab:Space()
+
+UI.HeightSlider = MovementTab:Slider({
+    Title = "Height",
+    IsTooltip = true,
+    Step = 1,
+    Value = { Min = 0, Max = 50, Default = 30 },
+    Callback = function(value) S.Hover.height = value end,
+})
+local MiscTab = Window:Tab({
+    Title = "Misc",
+    Icon = "lucide:target",
+    IconColor = DarkGray,
+    IconShape = "Square",
+    Border = false,
+})
+table.insert(Tabs, MiscTab)
+
+MiscTab:Section({
+    Title = "Misc",
+    TextSize = 18,
+    FontWeight = Enum.FontWeight.SemiBold,
+})
+
+MiscTab:Space()
+
+local anticheatDisabledConns = {}
+local anticheatOriginalNetworker = nil
+local anticheatProxy = nil
+
+local function getAntiCheatService()
+    local ok, svc = pcall(function()
+        return require(ReplicatedStorage.Shared.Services.AntiCheatService.AntiCheatServiceClient)
+    end)
+    if ok and type(svc) == "table" then
+        return svc
+    end
+    return nil
+end
+
+local function installAnticheatProxy()
+    if anticheatProxy then return end
+    local svc = getAntiCheatService()
+    if not svc then return end
+    local real = svc._networker
+    if not real then return end
+    anticheatOriginalNetworker = real
+    local proxy = setmetatable({}, {
+        __index = function(_, k)
+            return real[k]
+        end,
+    })
+    function proxy:fire(method, ...)
+        if method == "ReportViolation" then
+            return
+        end
+        return real:fire(method, ...)
+    end
+    anticheatProxy = proxy
+    svc._networker = proxy
+end
+
+local function removeAnticheatProxy()
+    if anticheatProxy then
+        local svc = getAntiCheatService()
+        if svc and anticheatOriginalNetworker then
+            svc._networker = anticheatOriginalNetworker
+        end
+    end
+    anticheatProxy = nil
+    anticheatOriginalNetworker = nil
+end
+
+local function disableAnticheatWatchers()
+    pcall(function()
+        if not getconnections then return end
+        local char = player.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        local signals = {
+            hum:GetPropertyChangedSignal("WalkSpeed"),
+            hum:GetPropertyChangedSignal("JumpHeight"),
+            hum:GetPropertyChangedSignal("HipHeight"),
+        }
+        for _, sig in ipairs(signals) do
+            for _, conn in ipairs(getconnections(sig)) do
+                if conn.Disable and not table.find(anticheatDisabledConns, conn) then
+                    pcall(function() conn:Disable() end)
+                    table.insert(anticheatDisabledConns, conn)
+                end
+            end
+        end
+    end)
+end
+
+local function enableAnticheatWatchers()
+    for _, conn in ipairs(anticheatDisabledConns) do
+        pcall(function()
+            if conn.Enable then conn:Enable() end
+        end)
+    end
+    table.clear(anticheatDisabledConns)
+end
+
+player.CharacterAdded:Connect(function()
+    if S.DisableAntiCheat then
+        task.delay(1.5, function()
+            if S.DisableAntiCheat then
+                disableAnticheatWatchers()
+            end
+        end)
+    end
+end)
+
+UI.DisableAntiCheatToggle = MiscTab:Toggle({
+    Title = "Disable AntiCheat",
+    Value = false,
+    Callback = function(state)
+        S.DisableAntiCheat = state
+        if state then
+            installAnticheatProxy()
+            disableAnticheatWatchers()
+            if not S.Loading then
+                WindUI:Notify({ Title = "Misc", Content = "Disable AntiCheat Enabled", Duration = 3 })
+            end
+        else
+            removeAnticheatProxy()
+            enableAnticheatWatchers()
+            if not S.Loading then
+                WindUI:Notify({ Title = "Misc", Content = "Disable AntiCheat Disabled", Duration = 3 })
+            end
+        end
+    end,
+})
+
+MiscTab:Space()
+
+UI.AntiAfkToggle = MiscTab:Toggle({
+    Title = "Anti AFK",
+    Value = false,
+    Callback = function(state)
+        S.AntiAfk = state
+        if state then
+            if not S.idledConnection then
+                S.idledConnection = player.Idled:Connect(function()
+                    VirtualUser:CaptureController()
+                    VirtualUser:ClickButton2(Vector2.new())
+                end)
+            end
+            if not S.Loading then
+                WindUI:Notify({ Title = "Misc", Content = "Anti AFK Enabled", Duration = 3 })
+            end
+        else
+            if S.idledConnection then
+                S.idledConnection:Disconnect()
+                S.idledConnection = nil
+            end
+            if not S.Loading then
+                WindUI:Notify({ Title = "Misc", Content = "Anti AFK Disabled", Duration = 3 })
+            end
+        end
+    end,
+})
+
+MiscTab:Space()
+
+local function clearVfxFolder()
+    local vfx = workspace:FindFirstChild("VFX")
+    if not vfx then return end
+    for _, child in ipairs(vfx:GetChildren()) do
+        child:Destroy()
+    end
+end
+
+local savedAtmosphere = nil
+local savedAtmosphereParent = nil
+
+local function findNormalAtmosphere()
+    local lighting = game:GetService("Lighting")
+    local atm = lighting:FindFirstChild("Normal Atmosphere")
+    if atm and atm:IsA("Atmosphere") then
+        return atm
+    end
+    for _, descendant in ipairs(lighting:GetDescendants()) do
+        if descendant:IsA("Atmosphere") and descendant.Name == "Normal Atmosphere" then
+            return descendant
+        end
+    end
+    return nil
+end
+
+local function applyRemoveFog()
+    local atm = findNormalAtmosphere()
+    if atm then
+        savedAtmosphere = atm
+        savedAtmosphereParent = atm.Parent
+        atm.Parent = nil
+    end
+end
+
+local function restoreFog()
+    if savedAtmosphere then
+        pcall(function()
+            local existing = findNormalAtmosphere()
+            if existing and existing ~= savedAtmosphere then
+                savedAtmosphere:Destroy()
+            elseif not savedAtmosphere.Parent then
+                savedAtmosphere.Parent = savedAtmosphereParent or game:GetService("Lighting")
+            end
+        end)
+        savedAtmosphere = nil
+        savedAtmosphereParent = nil
+    end
+end
+
+UI.RemoveEffectsToggle = MiscTab:Toggle({
+    Title = "Remove Effects",
+    Value = false,
+    Callback = function(state)
+        S.RemoveEffects = state
+        if state then
+            clearVfxFolder()
+            applyRemoveFog()
+            if not S.Loading then
+                WindUI:Notify({ Title = "Misc", Content = "Remove Effects Enabled", Duration = 3 })
+            end
+        else
+            restoreFog()
+            if not S.Loading then
+                WindUI:Notify({ Title = "Misc", Content = "Remove Effects Disabled", Duration = 3 })
+            end
+        end
+    end,
+})
+
+MiscTab:Space()
+
+local anonymousOriginals = setmetatable({}, { __mode = "k" })
+local anonymousConnections = setmetatable({}, { __mode = "k" })
+local anonFastConnection = nil
+
+local function findPath(root, ...)
+    local current = root
+    for _, name in ipairs({ ... }) do
+        if not current then return nil end
+        current = current:FindFirstChild(name)
+    end
+    return current
+end
+
+local function hookFastLabel(label)
+    if anonymousConnections[label] then return end
+    anonymousConnections[label] = label:GetPropertyChangedSignal("Text"):Connect(function()
+        if not S.Anonymous then return end
+        if label.Text ~= "???" then
+            label.Text = "???"
+        end
+    end)
+end
+
+local function anonApplyEntries(entries)
+    if type(entries) ~= "table" then return end
+    for _, entry in ipairs(entries) do
+        local label = entry.label
+        if label and (label:IsA("TextLabel") or label:IsA("TextButton")) then
+            if label.Text ~= "???" then
+                if anonymousOriginals[label] == nil then
+                    anonymousOriginals[label] = label.Text
+                end
+                label.Text = "???"
+            end
+            hookFastLabel(label)
+        end
+    end
+end
+
+local function findNametagEntries()
+    local entries = {}
+    local myDisplay = player.DisplayName
+    local candidates = {}
+    local chars = workspace:FindFirstChild("Characters") or game:FindFirstChild("Characters")
+    if chars then
+        local c1 = chars:FindFirstChild(player.Name)
+        if c1 then table.insert(candidates, c1) end
+        local c2 = chars:FindFirstChild(tostring(player.UserId))
+        if c2 then table.insert(candidates, c2) end
+        local c3 = chars:FindFirstChild(myDisplay)
+        if c3 then table.insert(candidates, c3) end
+    end
+    if player.Character then
+        table.insert(candidates, player.Character)
+    end
+    for _, char in ipairs(candidates) do
+        local head = char:FindFirstChild("Head")
+        if head then
+            local fca = head:FindFirstChild("FaceCenterAttachment")
+            if fca then
+                local ot = fca:FindFirstChild("OverheadTitle")
+                if ot then
+                    local nl = ot:FindFirstChild("NameLabel")
+                    if nl and (nl:IsA("TextLabel") or nl:IsA("TextButton")) then
+                        table.insert(entries, { label = nl, fallback = myDisplay })
+                    end
+                end
+                local nl2 = fca:FindFirstChild("NameLabel")
+                if nl2 and (nl2:IsA("TextLabel") or nl2:IsA("TextButton")) then
+                    table.insert(entries, { label = nl2, fallback = myDisplay })
+                end
+            end
+        end
+    end
+    return entries
+end
+
+local function findLeaderboardEntries()
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then return {} end
+    local playersFolder = findPath(playerGui, "Leaderboard", "Leaderboard", "Players")
+    if not playersFolder then return {} end
+    local entry = playersFolder:FindFirstChild(tostring(player.UserId))
+        or playersFolder:FindFirstChild(player.Name)
+    if not entry then return {} end
+    local label = findPath(entry, "PlayerInfo", "NameLabel")
+    if label and (label:IsA("TextLabel") or label:IsA("TextButton")) then
+        return { { label = label, fallback = player.DisplayName } }
+    end
+    return {}
+end
+
+local function findPlayerEntryEntries()
+    local coreGui = game:GetService("CoreGui")
+    local entry = findPath(coreGui, "PlayerList", "Children", "OffsetFrame", "PlayerScrollList",
+        "SizeOffsetFrame", "ScrollingFrameContainer", "ScrollingFrameClippingFrame",
+        "ScrollingFrame", "OffsetUndoFrame", "TeamList_Neutral",
+        "PlayerEntry_" .. tostring(player.UserId))
+    if not entry then return {} end
+    local label = findPath(entry, "PlayerEntryContentFrame", "OverlayFrame", "NameFrame", "PlayerName", "PlayerName")
+    if label and (label:IsA("TextLabel") or label:IsA("TextButton")) then
+        return { { label = label, fallback = player.DisplayName } }
+    end
+    return {}
+end
+
+local function findDropDownEntries()
+    local coreGui = game:GetService("CoreGui")
+    local tcf = findPath(coreGui, "PlayerList", "Children", "OffsetFrame", "PlayerScrollList",
+        "SizeOffsetFrame", "ScrollingFrameContainer", "PlayerDropDown",
+        "InnerFrame", "PlayerHeader", "Background", "TextContainerFrame")
+    if not tcf then return {} end
+    local dn = tcf:FindFirstChild("DisplayName")
+    local un = tcf:FindFirstChild("PlayerName")
+    if not dn and not un then return {} end
+    local myName = player.Name
+    local myDisplay = player.DisplayName
+    local dnText = (dn and dn:IsA("TextLabel") and dn.Text) or ""
+    local unText = (un and un:IsA("TextLabel") and un.Text) or ""
+    local unClean = unText:gsub("^@", "")
+    local isMe = (dnText ~= "" and (dnText == myDisplay or dnText == myName))
+        or (unClean ~= "" and (unClean == myName or unClean == myDisplay))
+        or dnText == "???"
+        or unText == "???"
+    if not isMe then return {} end
+    local entries = {}
+    if dn and dn:IsA("TextLabel") then
+        table.insert(entries, { label = dn, fallback = myDisplay })
+    end
+    if un and un:IsA("TextLabel") then
+        table.insert(entries, { label = un, fallback = "@" .. myName })
+    end
+    return entries
+end
+
+local function findPeopleRowEntries()
+    local coreGui = game:GetService("CoreGui")
+    local peopleList = findPath(coreGui,
+        "RobloxGui", "SettingsClippingShield", "SettingsShield", "MenuContainer",
+        "Page", "PageViewClipper", "PageView", "PageViewInnerFrame", "peoplepage",
+        "FocusRoot", "PeopleReactView", "People", "PeopleList")
+    if not peopleList then return {} end
+    local rows = {}
+    local function collectRows(parent)
+        for _, child in ipairs(parent:GetChildren()) do
+            if child.Name == "PersonRow" then
+                table.insert(rows, child)
+            end
+            collectRows(child)
+        end
+    end
+    pcall(collectRows, peopleList)
+    local entries = {}
+    local myName = player.Name
+    local myDisplay = player.DisplayName
+    for _, row in ipairs(rows) do
+        local nc = findPath(row, "RowContent", "LeftContent", "NameContainer")
+        if nc then
+            local display = nc:FindFirstChild("DisplayName") or nc:FindFirstChild("DisplayUsername")
+            local username = nc:FindFirstChild("UserName")
+            if display and display:IsA("TextLabel") then
+                local dText = display.Text or ""
+                if dText == myDisplay or dText == myName or dText == "???" then
+                    table.insert(entries, { label = display, fallback = myDisplay })
+                end
+            end
+            if username and username:IsA("TextLabel") then
+                local uClean = (username.Text or ""):gsub("^@", "")
+                if uClean == myName or uClean == myDisplay or uClean == "???" then
+                    table.insert(entries, { label = username, fallback = "@" .. myName })
+                end
+            end
+        end
+    end
+    return entries
+end
+
+local anonFinders = {
+    findNametagEntries, findLeaderboardEntries, findPlayerEntryEntries,
+    findDropDownEntries, findPeopleRowEntries,
+}
+
+local function applyAnonymousAll()
+    for _, finder in ipairs(anonFinders) do
+        local ok, entries = pcall(finder)
+        if ok then
+            pcall(anonApplyEntries, entries)
+        end
+    end
+end
+
+local function startAnonFastLoop()
+    if anonFastConnection then return end
+    anonFastConnection = RunService.Heartbeat:Connect(function()
+        if not S.Anonymous then return end
+        pcall(applyAnonymousAll)
+    end)
+end
+
+local function stopAnonFastLoop()
+    if anonFastConnection then
+        anonFastConnection:Disconnect()
+        anonFastConnection = nil
+    end
+end
+
+local function restoreAnonymous()
+    stopAnonFastLoop()
+    for _, conn in pairs(anonymousConnections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    table.clear(anonymousConnections)
+    local originals = anonymousOriginals
+    anonymousOriginals = setmetatable({}, { __mode = "k" })
+    local function restorePass()
+        for label, original in pairs(originals) do
+            pcall(function()
+                if label and label.Parent and label.Text == "???" then
+                    label.Text = original
+                end
+            end)
+        end
+        for _, finder in ipairs(anonFinders) do
+            pcall(function()
+                local entries = finder()
+                if type(entries) ~= "table" then return end
+                for _, entry in ipairs(entries) do
+                    local l = entry.label
+                    if l and l.Parent and l.Text == "???" then
+                        local original = originals[l] or entry.fallback
+                        if original and original ~= "" and original ~= "???" then
+                            l.Text = original
+                        end
+                    end
+                end
+            end)
+        end
+    end
+    restorePass()
+    task.delay(0.25, function() if not S.Anonymous then pcall(restorePass) end end)
+    task.delay(1, function() if not S.Anonymous then pcall(restorePass) end end)
+    task.delay(3, function() if not S.Anonymous then pcall(restorePass) end end)
+end
+
+UI.AnonymousToggle = MiscTab:Toggle({
+    Title = "Anonymous",
+    Value = false,
+    Callback = function(state)
+        S.Anonymous = state
+        if state then
+            pcall(applyAnonymousAll)
+            startAnonFastLoop()
+            if not S.Loading then
+                WindUI:Notify({ Title = "Misc", Content = "Anonymous Enabled", Duration = 3 })
+            end
+        else
+            restoreAnonymous()
+            if not S.Loading then
+                WindUI:Notify({ Title = "Misc", Content = "Anonymous Disabled", Duration = 3 })
+            end
+        end
+    end,
+})
+
+task.spawn(function()
+    while true do
+        if S.RemoveEffects then
+            clearVfxFolder()
+            pcall(applyRemoveFog)
+        end
+        if S.Anonymous then pcall(applyAnonymousAll) end
+        task.wait(0.5)
+    end
+end)
+
+local CardsTab = Window:Tab({
+    Title = "Cards",
+    Icon = "lucide:dice-6",
+    IconColor = LightGray,
+    IconShape = "Square",
+    Border = false,
+})
+table.insert(Tabs, CardsTab)
+
+local SelectedItem = ALL_ITEMS[1]
+
+UI.AutoPickToggle = CardsTab:Toggle({
+    Title = "Auto Pick",
+    Value = false,
+    Callback = function(state)
+        S.AutoPick = state
+        if state then
+            if not S.Loading then
+                WindUI:Notify({ Title = "Cards", Content = "Auto Pick Enabled", Duration = 3 })
+            end
+        else
+            if not S.Loading then
+                WindUI:Notify({ Title = "Cards", Content = "Auto Pick Disabled", Duration = 3 })
+            end
+        end
+    end,
+})
+
+CardsTab:Space()
+
+UI.MethodDropdown = CardsTab:Dropdown({
+    Title = "Method",
+    Values = { "Standard", "Raid", "Custom" },
+    Value = "Standard",
+    Multi = false,
+    Callback = function(selected)
+        S.SelectedMethod = selected
+    end,
+})
+
+CardsTab:Space()
+
+CardsTab:Section({
+    Title = "Custom",
+    TextSize = 18,
+    FontWeight = Enum.FontWeight.SemiBold,
+})
+
+CardsTab:Space()
+
+UI.PriorityListInput = CardsTab:Input({
+    Title = "Priority List",
+    Value = "",
+    Placeholder = "Item1, Item2, Item3, ... (only used by Custom)",
+    Type = "Input",
+    Callback = function(text)
+        S.CustomList = parseListText(text)
+    end,
+})
+
+CardsTab:Space()
+
+CardsTab:Dropdown({
+    Title = "Item",
+    Values = ALL_ITEMS,
+    Value = ALL_ITEMS[1],
+    Multi = false,
+    Callback = function(selected)
+        SelectedItem = selected
+    end,
+})
+
+CardsTab:Space()
+
+local AddRemoveGroup = CardsTab:Group({})
+
+AddRemoveGroup:Button({
+    Title = "Add",
+    Color = Green,
+    Icon = "",
+    Justify = "Center",
+    Callback = function()
+        if not SelectedItem then return end
+        local exists = false
+        for _, item in ipairs(S.CustomList) do
+            if item == SelectedItem then
+                exists = true
+                break
+            end
+        end
+        if not exists then
+            table.insert(S.CustomList, SelectedItem)
+            UI.PriorityListInput:Set(table.concat(S.CustomList, ", "))
+            WindUI:Notify({ Title = "Cards", Content = "Added " .. SelectedItem, Duration = 3 })
+        else
+            WindUI:Notify({ Title = "Cards", Content = SelectedItem .. " is already in the list", Duration = 3 })
+        end
+    end,
+})
+
+AddRemoveGroup:Space()
+
+AddRemoveGroup:Button({
+    Title = "Remove",
+    Color = Red,
+    Icon = "",
+    Justify = "Center",
+    Callback = function()
+        if not SelectedItem then return end
+        local removed = false
+        for i, item in ipairs(S.CustomList) do
+            if item == SelectedItem then
+                table.remove(S.CustomList, i)
+                removed = true
+                break
+            end
+        end
+        if removed then
+            UI.PriorityListInput:Set(table.concat(S.CustomList, ", "))
+            WindUI:Notify({ Title = "Cards", Content = "Removed " .. SelectedItem, Duration = 3 })
+        else
+            WindUI:Notify({ Title = "Cards", Content = SelectedItem .. " is not in the list", Duration = 3 })
+        end
+    end,
+})
+local function getPriorityList()
+    if S.SelectedMethod == "Custom" and #S.CustomList > 0 then
+        return S.CustomList
+    end
+    return DEFAULT_CUSTOM_LIST
+end
+
+local lastLevelUpChoices = nil
+local lastLevelUpTime = nil
+
+pcall(function()
+    local event = getGameServiceRemote()
+    event.OnClientEvent:Connect(function(eventName, data)
+        if eventName ~= "OnLevelUp" then return end
+        if type(data) ~= "table" then return end
+        local source = (type(data[1]) == "table") and data[1] or data
+        local choices = {}
+        for itemName, info in pairs(source) do
+            if type(itemName) == "string" and type(info) == "table" and type(info[3]) == "number" then
+                choices[itemName] = info[3]
+            end
+        end
+        if next(choices) ~= nil then
+            lastLevelUpChoices = choices
+            lastLevelUpTime = tick()
+        end
+    end)
+end)
+
+local function isGuiVisible(inst)
+    local current = inst
+    while current do
+        if current:IsA("GuiObject") and current.Visible == false then
+            return false
+        end
+        if current:IsA("ScreenGui") and current.Enabled == false then
+            return false
+        end
+        if current == player then break end
+        current = current.Parent
+    end
+    return true
+end
+
+local function getOpenUpgradesHolder()
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then return nil end
+    local frames = playerGui:FindFirstChild("Frames")
+    if not frames then return nil end
+    local upgrades = frames:FindFirstChild("Upgrades")
+    if not upgrades or not isGuiVisible(upgrades) then return nil end
+    local holder = upgrades:FindFirstChild("Holder")
+    if not holder or not isGuiVisible(holder) then return nil end
+    for i = 1, 5 do
+        local btn = holder:FindFirstChild("Selection" .. i)
+        if btn and isGuiVisible(btn) then
+            return holder
+        end
+    end
+    return nil
+end
+
+local function readChoicesFromUI(holder)
+    local choices = {}
+    for i = 1, 5 do
+        local btn = holder:FindFirstChild("Selection" .. i)
+        if btn and isGuiVisible(btn) then
+            local title = btn:FindFirstChild("ItemTitle", true)
+            if title and title:IsA("TextLabel") and title.Text ~= "" then
+                local text = title.Text:gsub("^%s+", ""):gsub("%s+$", "")
+                if text ~= "" then
+                    choices[text] = i
+                end
+            end
+        end
+    end
+    return choices
+end
+
+local function pickBestChoice(choices)
+    local priority = {}
+    local rank = 1
+    for _, item in ipairs(getPriorityList()) do
+        local canon = canonicalItemName(item)
+        if priority[canon] == nil then
+            priority[canon] = rank
+            rank = rank + 1
+        end
+    end
+    for _, item in ipairs(DEFAULT_CUSTOM_LIST) do
+        local canon = canonicalItemName(item)
+        if priority[canon] == nil then
+            priority[canon] = rank
+            rank = rank + 1
+        end
+    end
+    local nextUnknownRank = rank
+    local bestRank, bestIndex, bestItem
+    for itemName, index in pairs(choices) do
+        if type(index) == "number" then
+            local canon = canonicalItemName(itemName)
+            local r = priority[canon]
+            if r == nil then
+                r = nextUnknownRank
+                nextUnknownRank = nextUnknownRank + 1
+            end
+            if bestRank == nil or r < bestRank then
+                bestRank = r
+                bestIndex = index
+                bestItem = itemName
+            end
+        end
+    end
+    return bestIndex, bestItem
+end
+
+local function titleMatches(holder, index, itemName)
+    local btn = holder:FindFirstChild("Selection" .. tostring(index))
+    if not btn then return false end
+    local title = btn:FindFirstChild("ItemTitle", true)
+    if not title or not title:IsA("TextLabel") then return false end
+    local text = title.Text:gsub("^%s+", ""):gsub("%s+$", "")
+    return canonicalItemName(text) == canonicalItemName(itemName)
+end
+
+local function clickSelectionButton(btn)
+    if not btn then return end
+    local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
+    pcall(function()
+        VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
+        VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
+    end)
+    task.delay(0.3, function()
+        if btn.Parent and isGuiVisible(btn) and firesignal then
+            pcall(function()
+                firesignal(btn.MouseButton1Click)
+            end)
+        end
+    end)
+end
+
+local pickingBusy = false
+
+local function handleUpgradePick()
+    local holder = getOpenUpgradesHolder()
+    if not holder then
+        pickingBusy = false
+        return
+    end
+    local choices = nil
+    local usedEventData = false
+    if lastLevelUpChoices and lastLevelUpTime and (tick() - lastLevelUpTime) < 10 then
+        choices = lastLevelUpChoices
+        usedEventData = true
+    end
+    lastLevelUpChoices = nil
+    lastLevelUpTime = nil
+    if type(choices) ~= "table" then
+        choices = nil
+        usedEventData = false
+    end
+    if not usedEventData then
+        choices = readChoicesFromUI(holder)
+    end
+    if type(choices) ~= "table" or next(choices) == nil then
+        local deadline = tick() + 5
+        while tick() < deadline do
+            if not getOpenUpgradesHolder() then break end
+            task.wait(0.1)
+        end
+        pickingBusy = false
+        return
+    end
+    local bestIndex, bestItem = pickBestChoice(choices)
+    if usedEventData and bestIndex and not titleMatches(holder, bestIndex, bestItem) then
+        choices = readChoicesFromUI(holder)
+        if type(choices) == "table" and next(choices) ~= nil then
+            bestIndex, bestItem = pickBestChoice(choices)
+        end
+    end
+    if bestIndex then
+        pcall(function()
+            local event = getGameServiceRemote()
+            event:FireServer("PlayerUpgradeSelected", bestIndex, 1)
+        end)
+        WindUI:Notify({ Title = "Auto Pick", Content = "Picked " .. tostring(bestItem), Duration = 3 })
+        local btn = holder:FindFirstChild("Selection" .. tostring(bestIndex))
+        clickSelectionButton(btn)
+    end
+    local deadline = tick() + 5
+    while tick() < deadline do
+        if not getOpenUpgradesHolder() then break end
+        task.wait(0.1)
+    end
+    pickingBusy = false
+end
+
+task.spawn(function()
+    while true do
+        if S.AutoPick and not pickingBusy then
+            if getOpenUpgradesHolder() then
+                pickingBusy = true
+                task.spawn(handleUpgradePick)
+            end
+        end
+        task.wait(0.05)
+    end
+end)
+
+local ConfigTab = Window:Tab({
+    Title = "Config",
+    Icon = "solar:settings-bold",
+    IconColor = LightGray,
+    IconShape = "Square",
+    Border = false,
+})
+table.insert(Tabs, ConfigTab)
+
+ConfigTab:Section({
+    Title = "Config Manager",
+    TextSize = 18,
+    FontWeight = Enum.FontWeight.SemiBold,
+})
+
+ConfigTab:Space()
+
+local ConfigFolder = "FinalSwarm_Configs"
+if isfolder and not isfolder(ConfigFolder) then
+    pcall(function() makefolder(ConfigFolder) end)
+end
+
+local currentConfigName = ""
+
+local ConfigNameInput = ConfigTab:Input({
+    Title = "Config Name",
+    Placeholder = "Enter config name...",
+    Type = "Input",
+    Callback = function(text)
+        currentConfigName = text
+    end
+})
+
+ConfigTab:Space()
+
+local function getConfigFiles()
+    local files = {}
+    pcall(function()
+        local list = listfiles(ConfigFolder)
+        for _, file in ipairs(list) do
+            local name = file:match(".+[\\/](.+)%.json$")
+            if name then
+                table.insert(files, name)
+            end
+        end
+    end)
+    return files
+end
+
+local ConfigsDropdown = ConfigTab:Dropdown({
+    Title = "Saved Configs",
+    Values = getConfigFiles(),
+    Multi = false,
+    Callback = function(val)
+        currentConfigName = val
+        if ConfigNameInput and ConfigNameInput.Set then
+            ConfigNameInput:Set(val)
+        end
+    end
+})
+
+ConfigTab:Space()
+
+local function safeSet(element, value)
+    if element and element.Set then
+        pcall(function()
+            element:Set(value)
+        end)
+    end
+end
+
+local function getStateTable()
+    return {
+        OrbitRadius = S.Orbit.radius,
+        OrbitSpeed = S.Orbit.speed,
+        OrbitEnabled = S.OrbitEnabled,
+        HoverHeight = S.Hover.height,
+        HoverEnabled = S.Hover.enabled,
+        RemoveEffects = S.RemoveEffects,
+        Anonymous = S.Anonymous,
+        DisableAntiCheat = S.DisableAntiCheat,
+        AntiAfkEnabled = S.AntiAfk,
+        AutoPickEnabled = S.AutoPick,
+        SelectedMethod = S.SelectedMethod,
+        CustomListText = table.concat(S.CustomList, ", "),
+        Theme = WindUI:GetCurrentTheme(),
+        Acrylic = WindUI.Window.Acrylic,
+        Transparent = WindUI:GetTransparency(),
+    }
+end
+
+local function getMergedStateTable()
+    return getStateTable()
+end
+
+local function applyStateTable(state)
+    S.Loading = true
+    task.delay(5, function()
+        S.Loading = false
+    end)
+
+    local deadline = tick() + 10
+    while tick() < deadline do
+        if UI.OrbitToggle and UI.MethodDropdown and UI.AutoPickToggle then
+            break
+        end
+        task.wait(0.1)
+    end
+
+    if state.OrbitRadius then safeSet(UI.RadiusSlider, state.OrbitRadius) end
+    if state.OrbitSpeed then safeSet(UI.SpeedSlider, state.OrbitSpeed) end
+    if state.OrbitEnabled ~= nil then safeSet(UI.OrbitToggle, state.OrbitEnabled) end
+    if state.HoverHeight then safeSet(UI.HeightSlider, state.HoverHeight) end
+    if state.HoverEnabled ~= nil then safeSet(UI.HoverToggle, state.HoverEnabled) end
+    if state.RemoveEffects ~= nil then safeSet(UI.RemoveEffectsToggle, state.RemoveEffects) end
+    if state.Anonymous ~= nil then safeSet(UI.AnonymousToggle, state.Anonymous) end
+    if state.DisableAntiCheat ~= nil then safeSet(UI.DisableAntiCheatToggle, state.DisableAntiCheat) end
+    if state.AntiAfkEnabled ~= nil then safeSet(UI.AntiAfkToggle, state.AntiAfkEnabled) end
+    if state.AutoPickEnabled ~= nil then safeSet(UI.AutoPickToggle, state.AutoPickEnabled) end
+
+    if state.SelectedMethod then
+        S.SelectedMethod = state.SelectedMethod
+        selectDropdown(UI.MethodDropdown, state.SelectedMethod)
+    end
+
+    if type(state.CustomListText) == "string" and state.CustomListText ~= "" then
+        safeSet(UI.PriorityListInput, state.CustomListText)
+    end
+
+    if type(state.Theme) == "string" and state.Theme ~= "" then
+        pcall(function()
+            WindUI:SetTheme(state.Theme)
+        end)
+    end
+    if type(state.Acrylic) == "boolean" then
+        pcall(function()
+            if WindUI.Window.Acrylic ~= state.Acrylic then
+                WindUI:ToggleAcrylic(state.Acrylic)
+            end
+        end)
+    end
+    if type(state.Transparent) == "boolean" then
+        pcall(function()
+            if Window:GetTransparency() ~= state.Transparent then
+                Window:ToggleTransparency(state.Transparent)
+            end
+        end)
+    end
+end
+
+ConfigTab:Button({
+    Title = "Create / Overwrite",
+    Color = Green,
+    Icon = "",
+    Justify = "Center",
+    Callback = function()
+        if currentConfigName == "" then
+            WindUI:Notify({ Title = "Config", Content = "Please enter a name!", Duration = 3 })
+            return
+        end
+        local path = ConfigFolder .. "/" .. currentConfigName .. ".json"
+        local fileExists = isfile and isfile(path)
+        local json = HttpService:JSONEncode(getMergedStateTable())
+        local success, err = pcall(function()
+            writefile(path, json)
+        end)
+        if success then
+            ConfigsDropdown:Refresh(getConfigFiles())
+            if fileExists then
+                WindUI:Notify({ Title = "Config", Content = "Overwrote " .. currentConfigName, Duration = 3 })
+            else
+                WindUI:Notify({ Title = "Config", Content = "Created " .. currentConfigName, Duration = 3 })
+            end
+        else
+            WindUI:Notify({ Title = "Config", Content = "Save Error: " .. tostring(err), Duration = 5 })
+        end
+    end,
+})
+
+ConfigTab:Space()
+
+ConfigTab:Button({
+    Title = "Load Config",
+    Color = Blue,
+    Icon = "",
+    Justify = "Center",
+    Callback = function()
+        if currentConfigName == "" then
+            WindUI:Notify({ Title = "Config", Content = "Please enter or select a name!", Duration = 3 })
+            return
+        end
+        local path = ConfigFolder .. "/" .. currentConfigName .. ".json"
+        if not (isfile and isfile(path)) then
+            WindUI:Notify({ Title = "Config", Content = "Config file not found!", Duration = 3 })
+            return
+        end
+        local success, err = pcall(function()
+            local json = readfile(path)
+            local state = HttpService:JSONDecode(json)
+            applyStateTable(state)
+        end)
+        if success then
+            WindUI:Notify({ Title = "Config", Content = "Loaded " .. currentConfigName, Duration = 3 })
+        else
+            WindUI:Notify({ Title = "Config", Content = "Load Error: " .. tostring(err), Duration = 5 })
+        end
+    end,
+})
+
+ConfigTab:Space()
+
+ConfigTab:Button({
+    Title = "Delete Config",
+    Color = Red,
+    Icon = "",
+    Justify = "Center",
+    Callback = function()
+        if currentConfigName == "" then
+            WindUI:Notify({ Title = "Config", Content = "Please enter or select a name!", Duration = 3 })
+            return
+        end
+        local path = ConfigFolder .. "/" .. currentConfigName .. ".json"
+        if isfile and isfile(path) then
+            pcall(function() delfile(path) end)
+            ConfigsDropdown:Refresh(getConfigFiles())
+            WindUI:Notify({ Title = "Config", Content = "Deleted " .. currentConfigName, Duration = 3 })
+        else
+            WindUI:Notify({ Title = "Config", Content = "Config not found!", Duration = 3 })
+        end
+    end,
+})
+
+ConfigTab:Space()
+
+ConfigTab:Button({
+    Title = "Autoload",
+    Color = Purple,
+    Icon = "",
+    Justify = "Center",
+    Callback = function()
+        if currentConfigName == "" then
+            WindUI:Notify({ Title = "Config", Content = "Please enter or select a config name first!", Duration = 3 })
+            return
+        end
+        local path = ConfigFolder .. "/" .. currentConfigName .. ".json"
+        if not (isfile and isfile(path)) then
+            WindUI:Notify({ Title = "Config", Content = "Config does not exist! Save it first.", Duration = 4 })
+            return
+        end
+        pcall(function()
+            writefile(ConfigFolder .. "/autoload.txt", currentConfigName)
+        end)
+        WindUI:Notify({ Title = "Config", Content = "'" .. currentConfigName .. "' will AutoLoad on launch!", Duration = 4 })
+    end,
+})
+
+task.spawn(function()
+    task.wait(2)
+    local autoloadPath = ConfigFolder .. "/autoload.txt"
+    if isfile and isfile(autoloadPath) then
+        local successName, configName = pcall(function() return readfile(autoloadPath) end)
+        if successName and configName and configName ~= "" then
+            local path = ConfigFolder .. "/" .. configName .. ".json"
+            if isfile and isfile(path) then
+                local successLoad, err = pcall(function()
+                    local json = readfile(path)
+                    local state = HttpService:JSONDecode(json)
+                    applyStateTable(state)
+                end)
+                if successLoad then
+                    WindUI:Notify({ Title = "Config", Content = "AutoLoaded '" .. configName .. "'", Duration = 3 })
+                else
+                    WindUI:Notify({ Title = "Config", Content = "AutoLoad Error: " .. tostring(err), Duration = 5 })
+                end
+            else
+                WindUI:Notify({ Title = "Config", Content = "AutoLoad config '" .. configName .. "' not found!", Duration = 5 })
+            end
+        end
+    end
+end)
+
+ConfigTab:Space()
+
+local currentKey = Enum.KeyCode.LeftControl
+local listening = false
+local listenConn = nil
+
+local function applyToggleKey(key)
+    task.delay(0.1, function()
+        pcall(function()
+            Window:SetToggleKey(key)
+        end)
+    end)
+end
+
+local function refreshKeybindTitle()
+    pcall(function()
+        if UI.KeybindButton and UI.KeybindButton.SetTitle then
+            UI.KeybindButton:SetTitle("UI Toggle Key: " .. currentKey.Name)
+        end
+    end)
+end
+
+UI.KeybindButton = ConfigTab:Button({
+    Title = "UI Toggle Key: " .. currentKey.Name,
+    Color = Color3.fromHex("#52525b"),
+    Justify = "Center",
+    Callback = function()
+        if listening then
+            if listenConn then
+                listenConn:Disconnect()
+                listenConn = nil
+            end
+            listening = false
+            applyToggleKey(currentKey)
+            return
+        end
+
+        listening = true
+        pcall(function()
+            Window:SetToggleKey(Enum.KeyCode.F24)
+        end)
+        refreshKeybindTitle()
+
+        listenConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if gameProcessed then
+                listenConn:Disconnect()
+                listenConn = nil
+                listening = false
+                applyToggleKey(currentKey)
+                return
+            end
+            local key = input.KeyCode
+            if key == Enum.KeyCode.Unknown then return end
+            listenConn:Disconnect()
+            listenConn = nil
+            listening = false
+            if typeof(key) == "EnumItem" then
+                currentKey = key
+            end
+            refreshKeybindTitle()
+            applyToggleKey(currentKey)
+        end)
+    end,
+})
+
+applyToggleKey(currentKey)
+
+ConfigTab:Space()
+
+ConfigTab:Section({
+    Title = "Appearance",
+    TextSize = 18,
+    FontWeight = Enum.FontWeight.SemiBold,
+})
+
+ConfigTab:Space()
+
+local ALLOWED_THEMES = {
+    ["Amber"] = true,
+    ["CottonCandy"] = true,
+    ["Crimson"] = true,
+    ["MonokaiPro"] = true,
+    ["Dark"] = true
+}
+
+local themeNames = {}
+for name in pairs(WindUI:GetThemes()) do
+    if ALLOWED_THEMES[name] then
+        table.insert(themeNames, name)
+    end
+end
+table.sort(themeNames)
+
+local ThemeDropdown = ConfigTab:Dropdown({
+    Title = "Theme",
+    Values = themeNames,
+    Value = WindUI:GetCurrentTheme(),
+    Multi = false,
+    Callback = function(selected)
+        WindUI:SetTheme(selected)
+    end,
+})
+
+ConfigTab:Space()
+
+ConfigTab:Toggle({
+    Title = "Acrylic",
+    Value = WindUI.Window.Acrylic,
+    Callback = function()
+        local isOn = WindUI.Window.Acrylic
+        WindUI:ToggleAcrylic(not isOn)
+    end,
+})
+
+ConfigTab:Space()
+
+ConfigTab:Toggle({
+    Title = "Transparent",
+    Value = WindUI:GetTransparency(),
+    Callback = function(state)
+        Window:ToggleTransparency(state)
+    end,
+})
+
+do
+    local tabIcons = {}
+
+    local function findIconHolder(tab)
+        local ok, holder = pcall(function()
+            local parent = tab.Button and tab.Button.Parent
+            if not parent then return nil end
+            for _, child in ipairs(parent:GetChildren()) do
+                if child:IsA("Frame") and child:FindFirstChildOfClass("UICorner") then
+                    local iconLabel = child:FindFirstChildOfClass("ImageLabel", true)
+                        or child:FindFirstChildOfClass("ImageButton")
+                    if iconLabel then
+                        return child
+                    end
+                end
+            end
+            return nil
+        end)
+        if ok then return holder end
+        return nil
+    end
+
+    task.delay(1, function()
+        local squareRadius = nil
+        for _, tab in ipairs(Tabs) do
+            local holder = findIconHolder(tab)
+            if holder then
+                local iconCorner = holder:FindFirstChildOfClass("UICorner")
+                if iconCorner then
+                    squareRadius = squareRadius or iconCorner.CornerRadius
+                    if not tabIcons[tab] then
+                        tabIcons[tab] = iconCorner
+                    end
+                end
+            end
+        end
+
+        if not squareRadius then
+            squareRadius = UDim.new(0, 4)
+        end
+
+        local selectedTab = nil
+        local function animateShape(tab, radius)
+            local corner = tabIcons[tab]
+            if not corner then return end
+            local tween = TweenService:Create(
+                corner,
+                TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                { CornerRadius = radius }
+            )
+            tween:Play()
+        end
+
+        pcall(function()
+            Window:OnTabSelect(function(tab)
+                if selectedTab and selectedTab ~= tab then
+                    animateShape(selectedTab, squareRadius)
+                end
+                if tab then
+                    animateShape(tab, UDim.new(1, 0))
+                end
+                selectedTab = tab
+            end)
+        end)
+
+        task.delay(0.5, function()
+            pcall(function()
+                Window:SelectTab(1)
+            end)
+        end)
+    end)
+end
+
+WindUI:Notify({
+    Title = "Prism Hub",
+    Content = "Game Detected: Final Swarm",
+    Duration = 10,
+    CanClose = true,
+})
