@@ -128,6 +128,7 @@ local GRADE_TOLERANCE = 3
 local gradeRemote = nil
 local gradeHookInstalled = false
 local gradeSessionActive = false
+local lastClick = 0
 
 local function getInventoryRemote()
     return ReplicatedStorage
@@ -189,11 +190,6 @@ local function runGradeSession()
     gradeSessionActive = true
 
     task.spawn(function()
-        local sessionStart = tick()
-        local sawActive = false
-        local hiddenSince = nil
-        local lastClick = 0
-
         while S.AutoGrade do
             local ui = resolveGradeUI()
             local active = ui ~= nil
@@ -202,9 +198,6 @@ local function runGradeSession()
                 and ui.line.Visible ~= false
 
             if active then
-                sawActive = true
-                hiddenSince = nil
-
                 local lineRotation = ui.line.Rotation
                 for _, area in ipairs(ui.areas) do
                     if area and area.Visible and gradeRotationMatches(lineRotation, area.Rotation) then
@@ -212,16 +205,6 @@ local function runGradeSession()
                             clickScreenCenter()
                             lastClick = tick()
                         end
-                        break
-                    end
-                end
-            else
-                if not sawActive then
-                    if tick() - sessionStart > 10 then break end
-                else
-                    if hiddenSince == nil then
-                        hiddenSince = tick()
-                    elseif tick() - hiddenSince > 1 then
                         break
                     end
                 end
@@ -248,7 +231,9 @@ local function installGradeHook()
                 local isGradeRemote = (gradeRemote ~= nil and self == gradeRemote)
                     or (self.Name == "RemoteFunction" and self.Parent ~= nil and self.Parent.Name == "InventoryService")
                 if isGradeRemote then
-                    task.defer(runGradeSession)
+                    task.defer(function()
+                        runGradeSession()
+                    end)
                 end
             end
         end
