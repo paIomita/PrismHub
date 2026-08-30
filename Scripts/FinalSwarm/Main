@@ -64,6 +64,8 @@ local DarkGray  = Color3.fromHex("#6A6A6A")
 local UI = {}
 local Tabs = {}
 local S = {
+    AutoDodge = false, AutoDodgeGen = 0,
+    AutoDodgeSavedOrbit = false, AutoDodgeSavedHover = false,
     OrbitEnabled = false,
     Orbit = { radius = 100, speed = 5, centerX = 0, centerZ = 0, angle = 0 },
     Hover = { enabled = false, height = 30 },
@@ -161,10 +163,10 @@ local ALL_ITEMS = {
 
 local DEFAULT_CUSTOM_LIST = {
     "Black Hole Cannon", "Void Scythe", "Trident", "Ban Hammer", "Poision Flask",
-    "Tornado", "Firestaff", "Missile", "Revolver", "Ninja Star", "Spike Ball",
-    "Bananarang", "Shotgun", "Lightning Staff", "Daggers", "Sword", "Axe",
-    "Frost Walker", "Flame Walker", "Sniper", "Aura", "Meteor", "Laserbeam",
-    "Flamethrower", "Multishot", "Projectile Count Legendary", "Power Trio",
+    "Firestaff", "Missile", "Revolver", "Ninja Star", "Spike Ball", "Bananarang",
+    "Shotgun", "Lightning Staff", "Daggers", "Sword", "Axe", "Frost Walker",
+    "Flame Walker", "Sniper", "Aura", "Meteor", "Laserbeam", "Flamethrower",
+    "Tornado", "Multishot", "Projectile Count Legendary", "Power Trio",
     "Damage Legendary", "XP Gain Legendary", "Size Legendary",
     "Attack Speed Legendary", "Luck Legendary", "Health Legendary",
     "Movement Speed Legendary", "Extra Jump Legendary", "Projectile Count Epic",
@@ -417,7 +419,7 @@ local function applyMouseUnlockOnce()
 end
 
 UI.FreeCameraToggle = VisualsTab:Toggle({
-    Title = "Infinite Zoom",
+    Title = "Free Camera",
     Value = false,
     Callback = function(state)
         S.FreeCamera = state
@@ -430,7 +432,7 @@ UI.FreeCameraToggle = VisualsTab:Toggle({
             player.CameraMaxZoomDistance = 1000000
             applyMouseUnlockOnce()
             if not S.Loading then
-                WindUI:Notify({ Title = "Visuals", Content = "Infinite Zoom Enabled", Duration = 3 })
+                WindUI:Notify({ Title = "Visuals", Content = "Free Camera Enabled", Duration = 3 })
             end
         else
             if S.originalCameraMode then
@@ -440,7 +442,7 @@ UI.FreeCameraToggle = VisualsTab:Toggle({
                 player.CameraMaxZoomDistance = S.originalMaxZoom
             end
             if not S.Loading then
-                WindUI:Notify({ Title = "Visuals", Content = "Infinite Zoom Disabled", Duration = 3 })
+                WindUI:Notify({ Title = "Visuals", Content = "Free Camera Disabled", Duration = 3 })
             end
         end
     end,
@@ -1255,6 +1257,194 @@ UI.DisableAntiCheatToggle = AutofarmTab:Toggle({
 
 AutofarmTab:Space()
 
+local AutoDodgeHookInstalled = false
+local AutoDodgePaused = false
+
+local function getDangerParts()
+    local vfx = workspace:FindFirstChild("VFX")
+    if not vfx then return {} end
+    local parts = {}
+    for _, child in ipairs(vfx:GetChildren()) do
+        if child.Name == "DangerArea" then
+            for _, part in ipairs(child:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    table.insert(parts, part)
+                end
+            end
+        end
+    end
+    return parts
+end
+
+local function isInDanger()
+    local char = player.Character
+    if not char then return false end
+    local charParts = {}
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            table.insert(charParts, part)
+        end
+    end
+    if #charParts == 0 then return false end
+    for _, dangerPart in ipairs(getDangerParts()) do
+        local hx = dangerPart.Size.X / 2 + 1
+        local hy = dangerPart.Size.Y / 2 + 1
+        local hz = dangerPart.Size.Z / 2 + 1
+        for _, charPart in ipairs(charParts) do
+            local rel = dangerPart.CFrame:PointToObjectSpace(charPart.Position)
+            if math.abs(rel.X) <= hx and math.abs(rel.Y) <= hy and math.abs(rel.Z) <= hz then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function getMenuButton()
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then return nil end
+    local topbar = playerGui:FindFirstChild("TopbarStandard")
+    if not topbar then return nil end
+    local holders = topbar:FindFirstChild("Holders")
+    if not holders then return nil end
+    local left = holders:FindFirstChild("Left")
+    if not left then return nil end
+    local widget = left:FindFirstChild("Widget")
+    if not widget then return nil end
+    local iconButton = widget:FindFirstChild("IconButton")
+    if not iconButton then return nil end
+    local menu = iconButton:FindFirstChild("Menu")
+    if not menu then return nil end
+    local iconSpot = menu:FindFirstChild("IconSpot")
+    if not iconSpot then return nil end
+    return iconSpot:FindFirstChild("ClickRegion")
+end
+
+local function installPauseHook()
+    if AutoDodgeHookInstalled then return true end
+    if not hookmetamethod or not getnamecallmethod then
+        return false
+    end
+
+    local oldNamecall
+    local hookFn = function(self, ...)
+        if S.AutoDodge and getnamecallmethod() == "FireServer" then
+            local args = { ... }
+            if type(args[1]) == "string" and args[1] == "PlayerMenuOpened" then
+                local isPauseRemote = self.Name == "RemoteEvent"
+                    and self.Parent ~= nil
+                    and self.Parent.Name == "PauseService"
+                if isPauseRemote then
+                    AutoDodgePaused = not AutoDodgePaused
+                end
+            end
+        end
+        return oldNamecall(self, ...)
+    end
+
+    if newcclosure then
+        hookFn = newcclosure(hookFn)
+    end
+
+    oldNamecall = hookmetamethod(game, "__namecall", hookFn)
+    AutoDodgeHookInstalled = true
+    return true
+end
+
+local function clickMenuButton()
+    local btn = getMenuButton()
+    if not btn then return false end
+    pcall(function()
+        local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
+        VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
+        VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
+    end)
+    return true
+end
+
+local function autoDodgeLoop(myGen)
+    while S.AutoDodge and myGen == S.AutoDodgeGen do
+        if isInDanger() then
+            if not AutoDodgePaused then
+                clickMenuButton()
+                local deadline = tick() + 2
+                while tick() < deadline and not AutoDodgePaused do
+                    task.wait(0.05)
+                end
+            end
+            while S.AutoDodge and myGen == S.AutoDodgeGen and isInDanger() do
+                task.wait(0.1)
+            end
+            if S.AutoDodge and myGen == S.AutoDodgeGen then
+                if AutoDodgePaused then
+                    clickMenuButton()
+                    local deadline = tick() + 2
+                    while tick() < deadline and AutoDodgePaused do
+                        task.wait(0.05)
+                    end
+                end
+            end
+        end
+        task.wait(0.05)
+    end
+end
+
+UI.AutoDodgeToggle = AutofarmTab:Toggle({
+    Title = "Auto Dodge Attacks",
+    Value = false,
+    Callback = function(state)
+        S.AutoDodge = state
+        if state then
+            if not installPauseHook() then
+                S.AutoDodge = false
+                WindUI:Notify({ Title = "Auto Dodge", Content = "Auto Dodge not supported by your executor!", Duration = 5 })
+                task.defer(function()
+                    if UI.AutoDodgeToggle and UI.AutoDodgeToggle.Set then
+                        pcall(function() UI.AutoDodgeToggle:Set(false) end)
+                    end
+                end)
+                return
+            end
+
+            S.AutoDodgeGen = S.AutoDodgeGen + 1
+            local myGen = S.AutoDodgeGen
+
+            S.AutoDodgeSavedOrbit = S.OrbitEnabled
+            S.AutoDodgeSavedHover = S.Hover.enabled
+            if not S.AutoDodgeSavedOrbit then
+                pcall(function() UI.OrbitToggle:Set(true) end)
+            end
+            if not S.AutoDodgeSavedHover then
+                pcall(function() UI.HoverToggle:Set(true) end)
+            end
+
+            task.spawn(function()
+                autoDodgeLoop(myGen)
+            end)
+            if not S.Loading then
+                WindUI:Notify({ Title = "Auto Dodge", Content = "Auto Dodge Enabled", Duration = 3 })
+            end
+        else
+            S.AutoDodgeGen = S.AutoDodgeGen + 1
+            if AutoDodgePaused then
+                clickMenuButton()
+                AutoDodgePaused = false
+            end
+            if S.AutoDodgeSavedOrbit == false then
+                pcall(function() UI.OrbitToggle:Set(false) end)
+            end
+            if S.AutoDodgeSavedHover == false then
+                pcall(function() UI.HoverToggle:Set(false) end)
+            end
+            if not S.Loading then
+                WindUI:Notify({ Title = "Auto Dodge", Content = "Auto Dodge Disabled", Duration = 3 })
+            end
+        end
+    end,
+})
+
+AutofarmTab:Space()
+
 UI.AntiAfkToggle = AutofarmTab:Toggle({
     Title = "Anti AFK",
     Value = false,
@@ -1490,6 +1680,7 @@ local function getStateTable()
         RemoveEffects = S.RemoveEffects,
         Anonymous = S.Anonymous,
         DisableAntiCheat = S.DisableAntiCheat,
+        AutoDodgeEnabled = S.AutoDodge,
         AntiAfkEnabled = S.AntiAfk,
         AutoSkipEnabled = S.AutoSkip,
         AutoRestartEnabled = S.AutoRestart,
@@ -1516,7 +1707,8 @@ local function applyStateTable(state)
 
     local deadline = tick() + 10
     while tick() < deadline do
-        if UI.OrbitToggle and UI.MethodDropdown and UI.AutoPickToggle then
+        if UI.OrbitToggle and UI.MethodDropdown and UI.AutoPickToggle
+            and UI.AutoDodgeToggle then
             break
         end
         task.wait(0.1)
@@ -1566,6 +1758,8 @@ local function applyStateTable(state)
             end
         end)
     end
+
+    if state.AutoDodgeEnabled ~= nil then safeSet(UI.AutoDodgeToggle, state.AutoDodgeEnabled) end
 end
 
 ConfigTab:Button({
