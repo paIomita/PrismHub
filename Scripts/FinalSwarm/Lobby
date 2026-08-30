@@ -3,6 +3,7 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local TweenService = game:GetService("TweenService")
+local CollectionService = game:GetService("CollectionService")
 
 local cloneref = (cloneref or clonereference or function(instance)
     return instance
@@ -71,7 +72,9 @@ local S = {
     ClaimDailyKeys = false, ClaimDailyKeysGen = 0,
     BuyDailyItems = false, BuyDailyItemsGen = 0,
     AutoCodes = false, AutoCodesGen = 0,
-    AutoGrade = false,
+    AutoGrade = false, AutoGradeGen = 0,
+    SelectedGradeItem = "Void Helmet",
+    GradeTarget = "S",
     Loading = false,
 }
 
@@ -124,22 +127,36 @@ local function getCodesRemote()
 end
 
 local GRADE_TOLERANCE = 3
-
-local gradeRemote = nil
-local gradeHookInstalled = false
-local gradeSessionActive = false
 local lastClick = 0
 
-local function getInventoryRemote()
-    return ReplicatedStorage
-        :WaitForChild("Packages")
-        :WaitForChild("_Index")
-        :WaitForChild("leifstout_networker@0.3.1")
-        :WaitForChild("networker")
-        :WaitForChild("_remotes")
-        :WaitForChild("InventoryService")
-        :WaitForChild("RemoteFunction")
+local GRADE_TIERS = { "Copper", "Gold", "Diamond", "Emerald", "Void" }
+local GRADE_PIECES = { "Amulet", "Chestplate", "Helmet", "Leggings", "Ring" }
+
+local GRADE_ITEMS = {}
+for _, tier in ipairs(GRADE_TIERS) do
+    for _, piece in ipairs(GRADE_PIECES) do
+        table.insert(GRADE_ITEMS, tier .. " " .. piece)
+    end
 end
+
+local GRADE_TITLES_ORDER = { "F", "D", "C", "B", "A", "S", "SS", "SSS", "Omega" }
+
+local GRADE_ORDER = {
+    F = 1, D = 2, C = 3, B = 4, A = 5,
+    S = 6, SS = 7, SSS = 8, Omega = 9,
+}
+
+local GRADE_TITLE_NAMES = {
+    F = "FTitle",
+    D = "DTitle",
+    C = "CTitle",
+    B = "BTitle",
+    A = "ATitle",
+    S = "STitle",
+    SS = "SSTitle",
+    SSS = "SSSTitle",
+    Omega = "\206\169Title",
+}
 
 local function gradeRotationMatches(lineRotation, targetRotation)
     local diff = math.abs((lineRotation - targetRotation + 180) % 360 - 180)
@@ -158,95 +175,259 @@ local function clickScreenCenter()
     end)
 end
 
-local function resolveGradeUI()
+local function clickGui(btn)
+    if not btn then return false end
+    if firesignal then
+        pcall(function() firesignal(btn.MouseButton1Down) end)
+        pcall(function() firesignal(btn.MouseButton1Up) end)
+        pcall(function() firesignal(btn.MouseButton1Click) end)
+        return true
+    end
+    pcall(function()
+        local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
+        VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
+        VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
+    end)
+    return true
+end
+
+local function normalizeItemName(text)
+    return (tostring(text or ""):gsub("%s+", ""):lower())
+end
+
+local function resolveMainInventory()
     local playerGui = player:FindFirstChild("PlayerGui")
     if not playerGui then return nil end
     local frames = playerGui:FindFirstChild("Frames")
     if not frames then return nil end
-    local inv = frames:FindFirstChild("MainInventory")
-    if not inv then return nil end
-    local grading = inv:FindFirstChild("ArmorGradingSkillFrame")
-    if not grading then return nil end
-    local skillTest = grading:FindFirstChild("SkillTest")
-    if not skillTest then return nil end
-    local line = skillTest:FindFirstChild("selectionLine")
-    if not line then return nil end
-    local area = skillTest:FindFirstChild("SelectionArea")
-    if not area then return nil end
-    return {
-        grading = grading,
-        skillTest = skillTest,
-        line = line,
-        areas = {
-            area:FindFirstChild("Large"),
-            area:FindFirstChild("Medium"),
-            area:FindFirstChild("Small"),
-        },
-    }
+    return frames:FindFirstChild("MainInventory")
 end
 
-local function runGradeSession()
-    if gradeSessionActive then return end
-    gradeSessionActive = true
+local function openInventory()
+    for _, btn in ipairs(CollectionService:GetTagged("Button")) do
+        if btn:IsA("GuiButton") and btn:GetAttribute("Menu") == "MainInventory" then
+            clickGui(btn)
+            return true
+        end
+    end
+    return false
+end
 
-    task.spawn(function()
-        while S.AutoGrade do
-            local ui = resolveGradeUI()
-            local active = ui ~= nil
-                and ui.grading.Visible ~= false
-                and ui.skillTest.Visible ~= false
-                and ui.line.Visible ~= false
+local function getSelectedItemName(inv)
+    local sidebar = inv:FindFirstChild("ItemInfoSidebar")
+    if not sidebar then return nil end
+    local holder = sidebar:FindFirstChild("InfoHolder")
+    if not holder then return nil end
+    local nameLabel = holder:FindFirstChild("ItemName")
+    if not nameLabel or not nameLabel:IsA("TextLabel") then return nil end
+    return normalizeItemName(nameLabel.Text)
+end
 
-            if active then
-                local lineRotation = ui.line.Rotation
-                for _, area in ipairs(ui.areas) do
-                    if area and area.Visible and gradeRotationMatches(lineRotation, area.Rotation) then
-                        if tick() - lastClick >= 0.25 then
-                            clickScreenCenter()
-                            lastClick = tick()
+local function clickItemButton(inv)
+    local holder = inv:FindFirstChild("InventoryHolder")
+    local inventory = holder and holder:FindFirstChild("Inventory")
+    local scroll = inventory and inventory:FindFirstChild("ScrollingFrame")
+    local itemScroll = scroll and scroll:FindFirstChild("ItemScrollingFrame")
+    if not itemScroll then return end
+    local btnName = (S.SelectedGradeItem or ""):gsub("%s+", "")
+    clickGui(itemScroll:FindFirstChild(btnName))
+end
+
+local function clickGradeButton(inv)
+    local sidebar = inv:FindFirstChild("ItemInfoSidebar")
+    local holder = sidebar and sidebar:FindFirstChild("InfoHolder")
+    clickGui(holder and holder:FindFirstChild("GradeButton"))
+end
+
+local function getSelectedGrade(inv)
+    local titles = inv:FindFirstChild("GradeTitles")
+    if not titles then return nil end
+    for _, gradeName in ipairs(GRADE_TITLES_ORDER) do
+        local title = titles:FindFirstChild(GRADE_TITLE_NAMES[gradeName])
+        if title and title.Visible then
+            return gradeName
+        end
+    end
+    local no = titles:FindFirstChild("NoTitle")
+    if no and no.Visible then
+        return nil
+    end
+    return "Omega"
+end
+
+local function targetAchieved(inv)
+    local current = getSelectedGrade(inv)
+    if not current then return false end
+    local currentOrder = GRADE_ORDER[current]
+    local targetOrder = GRADE_ORDER[S.GradeTarget]
+    if not currentOrder or not targetOrder then return false end
+    return currentOrder >= targetOrder
+end
+
+local function playMinigameTick(skillTest)
+    local line = skillTest:FindFirstChild("selectionLine")
+    local area = skillTest:FindFirstChild("SelectionArea")
+    if not line or not area then return nil end
+    if line.Visible == false then return nil end
+    local lineRotation = line.Rotation
+    for _, name in ipairs({ "Large", "Medium", "Small" }) do
+        local zone = area:FindFirstChild(name)
+        if zone and zone.Visible then
+            if gradeRotationMatches(lineRotation, zone.Rotation) then
+                if tick() - lastClick >= 0.25 then
+                    clickScreenCenter()
+                    lastClick = tick()
+                end
+            end
+            return name .. ":" .. math.floor(zone.Rotation)
+        end
+    end
+    return nil
+end
+
+local function handleReward(reward)
+    local take = reward:FindFirstChild("Take")
+    local leave = reward:FindFirstChild("Leave")
+    if not take or not leave then return end
+
+    local function takeText()
+        local label = take:FindFirstChild("Text")
+        if label and label:IsA("TextLabel") then
+            return label.Text or ""
+        end
+        return ""
+    end
+
+    if string.find(takeText(), "Take Anyway", 1, true) then
+        clickGui(leave)
+        return
+    end
+
+    clickGui(take)
+    task.wait(0.5)
+    if string.find(takeText(), "Take Anyway", 1, true) then
+        clickGui(leave)
+    end
+end
+
+local function stopAutoGrade(reason)
+    S.AutoGrade = false
+    S.AutoGradeGen = S.AutoGradeGen + 1
+    task.defer(function()
+        if UI.AutoGradeToggle and UI.AutoGradeToggle.Set then
+            pcall(function() UI.AutoGradeToggle:Set(false) end)
+        end
+    end)
+    WindUI:Notify({ Title = "Auto Grade", Content = reason, Duration = 5 })
+end
+
+local function autoGradeLoop(myGen)
+    local lastState = ""
+    local lastProgress = tick()
+    local rewardHandled = false
+    local rewardHandledAt = 0
+    local rewardVisibleSince = nil
+    local lastOpenClick = 0
+    local lastGradeClick = 0
+    local lastItemClick = 0
+    local lastZone = nil
+
+    local function progress(state)
+        if state ~= lastState then
+            lastState = state
+            lastProgress = tick()
+        end
+    end
+
+    while S.AutoGrade and myGen == S.AutoGradeGen do
+        local inv = resolveMainInventory()
+
+        if not inv or inv.Visible ~= true then
+            progress("open_inventory")
+            openInventory()
+            task.wait(1)
+        else
+            local skill = inv:FindFirstChild("ArmorGradingSkillFrame")
+            local reward = inv:FindFirstChild("ArmorGradingReward")
+            local gradingMenu = inv:FindFirstChild("ArmorGrading")
+
+            if reward and reward.Visible then
+                progress("reward")
+                if rewardVisibleSince == nil then
+                    rewardVisibleSince = tick()
+                end
+                if not rewardHandled and tick() - rewardVisibleSince >= 3 then
+                    handleReward(reward)
+                    rewardHandled = true
+                    rewardHandledAt = tick()
+                elseif rewardHandled and tick() - rewardHandledAt > 5 then
+                    rewardHandled = false
+                end
+                task.wait(0.25)
+            else
+                rewardHandled = false
+                rewardVisibleSince = nil
+
+                if skill and skill.Visible then
+                    local skillTest = skill:FindFirstChild("SkillTest")
+                    local spam = skillTest and skillTest:FindFirstChild("SpamText")
+                    if spam and spam.Visible then
+                        progress("spam")
+                        clickScreenCenter()
+                        RunService.Heartbeat:Wait()
+                    elseif skillTest then
+                        progress("minigame")
+                        local zone = playMinigameTick(skillTest)
+                        if zone ~= lastZone then
+                            lastZone = zone
+                            lastProgress = tick()
                         end
+                        RunService.Heartbeat:Wait()
+                    else
+                        task.wait(0.1)
+                    end
+                elseif gradingMenu and gradingMenu.Visible then
+                    progress("grading_menu")
+                    if targetAchieved(inv) then
+                        stopAutoGrade("Target grade achieved!")
                         break
+                    end
+                    if tick() - lastOpenClick >= 3 then
+                        clickGui(gradingMenu:FindFirstChild("Open"))
+                        lastOpenClick = tick()
+                    end
+                    task.wait(0.3)
+                else
+                    local wanted = normalizeItemName(S.SelectedGradeItem)
+                    local currentName = getSelectedItemName(inv)
+                    if currentName ~= wanted then
+                        progress("select_item")
+                        if tick() - lastItemClick >= 1 then
+                            clickItemButton(inv)
+                            lastItemClick = tick()
+                        end
+                        task.wait(0.5)
+                    else
+                        progress("grade_button")
+                        if targetAchieved(inv) then
+                            stopAutoGrade("Target grade achieved!")
+                            break
+                        end
+                        if tick() - lastGradeClick >= 1.5 then
+                            clickGradeButton(inv)
+                            lastGradeClick = tick()
+                        end
+                        task.wait(0.4)
                     end
                 end
             end
-
-            RunService.Heartbeat:Wait()
         end
 
-        gradeSessionActive = false
-    end)
-end
-
-local function installGradeHook()
-    if gradeHookInstalled then return true end
-    if not hookmetamethod or not getnamecallmethod then
-        return false
-    end
-
-    local oldNamecall
-    local hookFn = function(self, ...)
-        if S.AutoGrade and getnamecallmethod() == "InvokeServer" then
-            local args = { ... }
-            if type(args[1]) == "string" and args[1] == "startGrading" then
-                local isGradeRemote = (gradeRemote ~= nil and self == gradeRemote)
-                    or (self.Name == "RemoteFunction" and self.Parent ~= nil and self.Parent.Name == "InventoryService")
-                if isGradeRemote then
-                    task.defer(function()
-                        runGradeSession()
-                    end)
-                end
-            end
+        if tick() - lastProgress > 45 then
+            stopAutoGrade("Stalled - out of crystals or item missing?")
+            break
         end
-        return oldNamecall(self, ...)
     end
-
-    if newcclosure then
-        hookFn = newcclosure(hookFn)
-    end
-
-    oldNamecall = hookmetamethod(game, "__namecall", hookFn)
-    gradeHookInstalled = true
-    return true
 end
 
 local function getDisplayName(modelName)
@@ -331,7 +512,6 @@ end
 
 S.SelectedDisplay = defaultDisplay
 S.SelectedChest = defaultActual or "VoidChest"
-
 local function getAllCodes()
     local codes = {}
     local seen = {}
@@ -489,6 +669,7 @@ UI.AutoOpenAllToggle = ChestsTab:Toggle({
         end
     end,
 })
+
 local MiscTab = Window:Tab({
     Title = "Misc",
     Icon = "lucide:target",
@@ -548,33 +729,44 @@ UI.AutoGradeToggle = MiscTab:Toggle({
     Callback = function(state)
         S.AutoGrade = state
         if state then
+            S.AutoGradeGen = S.AutoGradeGen + 1
+            local myGen = S.AutoGradeGen
             task.spawn(function()
-                pcall(function()
-                    gradeRemote = getInventoryRemote()
-                end)
+                autoGradeLoop(myGen)
             end)
-
-            if installGradeHook() then
-                if not S.Loading then
-                    WindUI:Notify({ Title = "Grade", Content = "Auto Grade Enabled", Duration = 3 })
-                end
-                if resolveGradeUI() then
-                    task.defer(runGradeSession)
-                end
-            else
-                S.AutoGrade = false
-                WindUI:Notify({ Title = "Grade", Content = "Auto Grade not supported by your executor!", Duration = 5 })
-                task.defer(function()
-                    if UI.AutoGradeToggle and UI.AutoGradeToggle.Set then
-                        pcall(function() UI.AutoGradeToggle:Set(false) end)
-                    end
-                end)
+            if not S.Loading then
+                WindUI:Notify({ Title = "Grade", Content = "Auto Grade Enabled", Duration = 3 })
             end
         else
+            S.AutoGradeGen = S.AutoGradeGen + 1
             if not S.Loading then
                 WindUI:Notify({ Title = "Grade", Content = "Auto Grade Disabled", Duration = 3 })
             end
         end
+    end,
+})
+
+MiscTab:Space()
+
+UI.GradeItemDropdown = MiscTab:Dropdown({
+    Title = "Select Item",
+    Values = GRADE_ITEMS,
+    Value = S.SelectedGradeItem,
+    Multi = false,
+    Callback = function(selected)
+        S.SelectedGradeItem = selected
+    end,
+})
+
+MiscTab:Space()
+
+UI.GradeTargetDropdown = MiscTab:Dropdown({
+    Title = "Target Grade",
+    Values = { "F", "D", "C", "B", "A", "S", "SS", "SSS", "Omega" },
+    Value = S.GradeTarget,
+    Multi = false,
+    Callback = function(selected)
+        S.GradeTarget = selected
     end,
 })
 
@@ -786,7 +978,6 @@ UI.AutoAchievementsToggle = MiscTab:Toggle({
         end
     end,
 })
-
 local ConfigTab = Window:Tab({
     Title = "Config",
     Icon = "solar:settings-bold",
@@ -870,6 +1061,8 @@ local function getStateTable()
         BuyDailyItems = S.BuyDailyItems,
         AutoCodes = S.AutoCodes,
         AutoGrade = S.AutoGrade,
+        SelectedGradeItem = S.SelectedGradeItem,
+        GradeTarget = S.GradeTarget,
         Theme = WindUI:GetCurrentTheme(),
         Acrylic = WindUI.Window.Acrylic,
         Transparent = WindUI:GetTransparency(),
@@ -888,7 +1081,7 @@ local function applyStateTable(state)
 
     local deadline = tick() + 10
     while tick() < deadline do
-        if UI.ChestDropdown and UI.AutoGradeToggle then
+        if UI.ChestDropdown and UI.AutoGradeToggle and UI.GradeItemDropdown then
             break
         end
         task.wait(0.1)
@@ -912,7 +1105,16 @@ local function applyStateTable(state)
     if state.ClaimDailyKeys ~= nil then safeSet(UI.ClaimDailyKeysToggle, state.ClaimDailyKeys) end
     if state.BuyDailyItems ~= nil then safeSet(UI.BuyDailyItemsToggle, state.BuyDailyItems) end
     if state.AutoCodes ~= nil then safeSet(UI.AutoCodesToggle, state.AutoCodes) end
+    if state.SelectedGradeItem then
+        S.SelectedGradeItem = state.SelectedGradeItem
+        selectDropdown(UI.GradeItemDropdown, state.SelectedGradeItem)
+    end
+    if state.GradeTarget then
+        S.GradeTarget = state.GradeTarget
+        selectDropdown(UI.GradeTargetDropdown, state.GradeTarget)
+    end
     if state.AutoGrade ~= nil then safeSet(UI.AutoGradeToggle, state.AutoGrade) end
+
     if type(state.Theme) == "string" and state.Theme ~= "" then
         pcall(function()
             WindUI:SetTheme(state.Theme)
