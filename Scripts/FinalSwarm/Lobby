@@ -176,12 +176,7 @@ end
 
 local function clickGui(btn)
     if not btn then return false end
-    if firesignal then
-        pcall(function() firesignal(btn.MouseButton1Down) end)
-        pcall(function() firesignal(btn.MouseButton1Up) end)
-        pcall(function() firesignal(btn.MouseButton1Click) end)
-        return true
-    end
+    if not btn:IsA("GuiButton") then return false end
     pcall(function()
         local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
         VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
@@ -299,6 +294,7 @@ local function autoGradeLoop(myGen)
     local rewardVisibleSince = nil
     local lastOpenClick = 0
     local lastZone = nil
+    local lastSpamClick = 0
 
     local function progress(state)
         if state ~= lastState then
@@ -335,8 +331,11 @@ local function autoGradeLoop(myGen)
                 local spam = skillTest and skillTest:FindFirstChild("SpamText")
                 if spam and spam.Visible then
                     progress("spam")
-                    clickScreenCenter()
-                    RunService.Heartbeat:Wait()
+                    if tick() - lastSpamClick >= 0.05 then
+                        clickScreenCenter()
+                        lastSpamClick = tick()
+                    end
+                    task.wait(0.05)
                 elseif skillTest then
                     progress("minigame")
                     local zone = playMinigameTick(skillTest)
@@ -344,7 +343,7 @@ local function autoGradeLoop(myGen)
                         lastZone = zone
                         lastProgress = tick()
                     end
-                    RunService.Heartbeat:Wait()
+                    task.wait(0.03)
                 else
                     task.wait(0.1)
                 end
