@@ -216,6 +216,19 @@ local function getRaidShrines()
     return shrines
 end
 
+local collisionDisabled = {}
+
+local function disableShrineCollisions(shrines)
+    for _, shrine in ipairs(shrines) do
+        for _, descendant in ipairs(shrine:GetDescendants()) do
+            if descendant:IsA("BasePart") and descendant.CanCollide and not collisionDisabled[descendant] then
+                collisionDisabled[descendant] = true
+                descendant.CanCollide = false
+            end
+        end
+    end
+end
+
 local function getDangerParts()
     local vfx = workspace:FindFirstChild("VFX")
     if not vfx then return {} end
@@ -259,9 +272,13 @@ end
 local function autoRaidLoop(myGen)
     local locked = false
     local currentShrine = nil
+    local fleeCooldownUntil = 0
+    local calmSince = nil
+    local fledFrom = nil
 
     while S.AutoRaid and myGen == S.AutoRaidGen do
         local shrines = getRaidShrines()
+        disableShrineCollisions(shrines)
 
         if not locked then
             if #shrines > 0 then
@@ -276,6 +293,7 @@ local function autoRaidLoop(myGen)
                     pcall(function() UI.HoverToggle:Set(false) end)
                 end
                 currentShrine = shrines[math.random(#shrines)]
+                fledFrom = nil
                 WindUI:Notify({ Title = "Auto Raid", Content = "Crystals spawned - locking Orbit/Hover", Duration = 3 })
             else
                 task.wait(0.5)
@@ -295,17 +313,43 @@ local function autoRaidLoop(myGen)
             else
                 if not (currentShrine and currentShrine.Parent and table.find(shrines, currentShrine)) then
                     currentShrine = shrines[math.random(#shrines)]
+                    fledFrom = nil
                 end
 
-                if isInDanger() then
-                    local others = {}
-                    for _, shrine in ipairs(shrines) do
-                        if shrine ~= currentShrine then
-                            table.insert(others, shrine)
+                local inDanger = isInDanger()
+
+                if inDanger then
+                    calmSince = nil
+                    if tick() >= fleeCooldownUntil then
+                        local others = {}
+                        for _, shrine in ipairs(shrines) do
+                            if shrine ~= currentShrine and shrine ~= fledFrom then
+                                table.insert(others, shrine)
+                            end
+                        end
+                        if #others == 0 then
+                            for _, shrine in ipairs(shrines) do
+                                if shrine ~= currentShrine then
+                                    table.insert(others, shrine)
+                                end
+                            end
+                        end
+                        if #others > 0 then
+                            fledFrom = currentShrine
+                            currentShrine = others[math.random(#others)]
+                            local hitbox = currentShrine:FindFirstChild("Hitbox")
+                            local rootPart = getHumanoidRootPart()
+                            if hitbox and rootPart then
+                                rootPart.CFrame = CFrame.new(hitbox.Position)
+                            end
+                            fleeCooldownUntil = tick() + 2
                         end
                     end
-                    if #others > 0 then
-                        currentShrine = others[math.random(#others)]
+                else
+                    if calmSince == nil then
+                        calmSince = tick()
+                    elseif tick() - calmSince > 1 then
+                        fledFrom = nil
                     end
                 end
 
@@ -1127,7 +1171,7 @@ UI.MethodDropdown = CardsTab:Dropdown({
     Multi = false,
     Callback = function(selected)
         S.SelectedMethod = selected
-        end,
+    end,
 })
 
 CardsTab:Space()
