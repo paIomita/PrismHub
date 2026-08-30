@@ -64,15 +64,16 @@ local DarkGray  = Color3.fromHex("#6A6A6A")
 local UI = {}
 local Tabs = {}
 local S = {
+    AutoRaid = false, AutoRaidGen = 0, AutoRaidActive = false,
+    AutoRaidSavedOrbit = false, AutoRaidSavedHover = false,
     OrbitEnabled = false,
     Orbit = { radius = 100, speed = 5, centerX = 0, centerZ = 0, angle = 0 },
     Hover = { enabled = false, height = 30 },
-    AntiAfk = false,
+    AntiAfk = false, AutoRestart = false,
     DisableAntiCheat = false,
     AutoPick = false, SelectedMethod = "Standard",
     CustomList = {},
     RemoveEffects = false, Anonymous = false,
-    originalDevMouseLock = nil,
     orbitConnection = nil, idledConnection = nil, hoverPlatform = nil,
     Loading = false,
 }
@@ -141,10 +142,10 @@ local ALL_ITEMS = {
 
 local DEFAULT_CUSTOM_LIST = {
     "Black Hole Cannon", "Void Scythe", "Trident", "Ban Hammer", "Poision Flask",
-    "Tornado", "Firestaff", "Missile", "Revolver", "Ninja Star", "Spike Ball",
-    "Bananarang", "Shotgun", "Lightning Staff", "Daggers", "Sword", "Axe",
-    "Frost Walker", "Flame Walker", "Sniper", "Aura", "Meteor", "Laserbeam",
-    "Flamethrower", "Multishot", "Projectile Count Legendary", "Power Trio",
+    "Firestaff", "Missile", "Revolver", "Ninja Star", "Spike Ball", "Bananarang",
+    "Shotgun", "Lightning Staff", "Daggers", "Sword", "Axe", "Frost Walker",
+    "Flame Walker", "Sniper", "Aura", "Meteor", "Laserbeam", "Flamethrower",
+    "Tornado", "Multishot", "Projectile Count Legendary", "Power Trio",
     "Damage Legendary", "XP Gain Legendary", "Size Legendary",
     "Attack Speed Legendary", "Luck Legendary", "Health Legendary",
     "Movement Speed Legendary", "Extra Jump Legendary", "Projectile Count Epic",
@@ -193,6 +194,170 @@ player.CharacterAdded:Connect(function()
 end)
 
 MovementTab:Section({
+    Title = "Raid",
+    TextSize = 18,
+    FontWeight = Enum.FontWeight.SemiBold,
+})
+
+MovementTab:Space()
+
+local function getRaidShrines()
+    local map = workspace:FindFirstChild("Map")
+    if not map then return {} end
+    local shrines = {}
+    for _, child in ipairs(map:GetChildren()) do
+        if child.Name == "RaidCrystalShrine" then
+            local hitbox = child:FindFirstChild("Hitbox")
+            if hitbox and hitbox:IsA("BasePart") then
+                table.insert(shrines, child)
+            end
+        end
+    end
+    return shrines
+end
+
+local function getDangerParts()
+    local vfx = workspace:FindFirstChild("VFX")
+    if not vfx then return {} end
+    local parts = {}
+    for _, child in ipairs(vfx:GetChildren()) do
+        if child.Name == "DangerArea" then
+            for _, part in ipairs(child:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    table.insert(parts, part)
+                end
+            end
+        end
+    end
+    return parts
+end
+
+local function isInDanger()
+    local char = player.Character
+    if not char then return false end
+    local charParts = {}
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            table.insert(charParts, part)
+        end
+    end
+    if #charParts == 0 then return false end
+    for _, dangerPart in ipairs(getDangerParts()) do
+        local hx = dangerPart.Size.X / 2 + 1
+        local hy = dangerPart.Size.Y / 2 + 1
+        local hz = dangerPart.Size.Z / 2 + 1
+        for _, charPart in ipairs(charParts) do
+            local rel = dangerPart.CFrame:PointToObjectSpace(charPart.Position)
+            if math.abs(rel.X) <= hx and math.abs(rel.Y) <= hy and math.abs(rel.Z) <= hz then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function autoRaidLoop(myGen)
+    local locked = false
+    local currentShrine = nil
+
+    while S.AutoRaid and myGen == S.AutoRaidGen do
+        local shrines = getRaidShrines()
+
+        if not locked then
+            if #shrines > 0 then
+                locked = true
+                S.AutoRaidActive = true
+                S.AutoRaidSavedOrbit = S.OrbitEnabled
+                S.AutoRaidSavedHover = S.Hover.enabled
+                if S.AutoRaidSavedOrbit then
+                    pcall(function() UI.OrbitToggle:Set(false) end)
+                end
+                if S.AutoRaidSavedHover then
+                    pcall(function() UI.HoverToggle:Set(false) end)
+                end
+                currentShrine = shrines[math.random(#shrines)]
+                WindUI:Notify({ Title = "Auto Raid", Content = "Crystals spawned - locking Orbit/Hover", Duration = 3 })
+            else
+                task.wait(0.5)
+            end
+        else
+            if #shrines == 0 then
+                S.AutoRaidActive = false
+                if S.AutoRaidSavedOrbit then
+                    pcall(function() UI.OrbitToggle:Set(true) end)
+                end
+                if S.AutoRaidSavedHover then
+                    pcall(function() UI.HoverToggle:Set(true) end)
+                end
+                locked = false
+                currentShrine = nil
+                WindUI:Notify({ Title = "Auto Raid", Content = "All crystals broken - Orbit/Hover restored", Duration = 3 })
+            else
+                if not (currentShrine and currentShrine.Parent and table.find(shrines, currentShrine)) then
+                    currentShrine = shrines[math.random(#shrines)]
+                end
+
+                if isInDanger() then
+                    local others = {}
+                    for _, shrine in ipairs(shrines) do
+                        if shrine ~= currentShrine then
+                            table.insert(others, shrine)
+                        end
+                    end
+                    if #others > 0 then
+                        currentShrine = others[math.random(#others)]
+                    end
+                end
+
+                local hitbox = currentShrine and currentShrine:FindFirstChild("Hitbox")
+                if hitbox and hitbox:IsA("BasePart") then
+                    local rootPart = getHumanoidRootPart()
+                    if rootPart and (rootPart.Position - hitbox.Position).Magnitude > 3 then
+                        rootPart.CFrame = CFrame.new(hitbox.Position)
+                    end
+                end
+                task.wait(0.1)
+            end
+        end
+    end
+
+    if locked then
+        S.AutoRaidActive = false
+        if S.AutoRaidSavedOrbit then
+            pcall(function() UI.OrbitToggle:Set(true) end)
+        end
+        if S.AutoRaidSavedHover then
+            pcall(function() UI.HoverToggle:Set(true) end)
+        end
+    end
+end
+
+UI.AutoRaidToggle = MovementTab:Toggle({
+    Title = "Auto Raid",
+    Value = false,
+    Callback = function(state)
+        S.AutoRaid = state
+        if state then
+            S.AutoRaidGen = S.AutoRaidGen + 1
+            local myGen = S.AutoRaidGen
+            task.spawn(function()
+                autoRaidLoop(myGen)
+            end)
+            if not S.Loading then
+                WindUI:Notify({ Title = "Auto Raid", Content = "Auto Raid Enabled - waiting for crystals", Duration = 3 })
+            end
+        else
+            S.AutoRaidGen = S.AutoRaidGen + 1
+            if not S.Loading then
+                WindUI:Notify({ Title = "Auto Raid", Content = "Auto Raid Disabled", Duration = 3 })
+            end
+        end
+    end,
+})
+
+MovementTab:Space()
+
+MovementTab:Section({
     Title = "Orbit",
     TextSize = 18,
     FontWeight = Enum.FontWeight.SemiBold,
@@ -231,6 +396,13 @@ UI.OrbitToggle = MovementTab:Toggle({
     Title = "Orbit Enabled",
     Value = false,
     Callback = function(state)
+        if S.AutoRaidActive and state then
+            WindUI:Notify({ Title = "Auto Raid", Content = "Orbit is locked while Auto Raid is running", Duration = 2 })
+            task.defer(function()
+                pcall(function() UI.OrbitToggle:Set(false) end)
+            end)
+            return
+        end
         S.OrbitEnabled = state
         if state then
             S.orbitConnection = RunService.RenderStepped:Connect(updateOrbit)
@@ -335,6 +507,13 @@ UI.HoverToggle = MovementTab:Toggle({
     Title = "Hover Enabled",
     Value = false,
     Callback = function(state)
+        if S.AutoRaidActive and state then
+            WindUI:Notify({ Title = "Auto Raid", Content = "Hover is locked while Auto Raid is running", Duration = 2 })
+            task.defer(function()
+                pcall(function() UI.HoverToggle:Set(false) end)
+            end)
+            return
+        end
         S.Hover.enabled = state
         if state then
             if not S.Loading then
@@ -516,11 +695,60 @@ UI.AntiAfkToggle = MiscTab:Toggle({
 
 MiscTab:Space()
 
+local AutoRestartGeneration = 0
+local runEndedTime = nil
+
+pcall(function()
+    local event = getGameServiceRemote()
+    event.OnClientEvent:Connect(function(arg1)
+        if arg1 == "RunEnded" then
+            runEndedTime = tick()
+        end
+    end)
+end)
+
+UI.AutoRestartToggle = MiscTab:Toggle({
+    Title = "Auto Restart",
+    Value = false,
+    Callback = function(state)
+        S.AutoRestart = state
+        if state then
+            AutoRestartGeneration = AutoRestartGeneration + 1
+            local myGen = AutoRestartGeneration
+            task.spawn(function()
+                while S.AutoRestart and myGen == AutoRestartGeneration do
+                    if runEndedTime then
+                        local elapsed = tick() - runEndedTime
+                        local remaining = 5 - elapsed
+                        if remaining > 0 then
+                            task.wait(remaining)
+                        end
+                        if not S.AutoRestart or myGen ~= AutoRestartGeneration then
+                            break
+                        end
+                        pcall(function()
+                            local event = getGameServiceRemote()
+                            event:FireServer("PlayAgain")
+                        end)
+                        runEndedTime = nil
+                    else
+                        task.wait(0.5)
+                    end
+                end
+            end)
+        end
+    end,
+})
+
+MiscTab:Space()
+
 local function clearVfxFolder()
     local vfx = workspace:FindFirstChild("VFX")
     if not vfx then return end
     for _, child in ipairs(vfx:GetChildren()) do
-        child:Destroy()
+        if child.Name ~= "DangerArea" then
+            child:Destroy()
+        end
     end
 end
 
@@ -899,7 +1127,7 @@ UI.MethodDropdown = CardsTab:Dropdown({
     Multi = false,
     Callback = function(selected)
         S.SelectedMethod = selected
-    end,
+        end,
 })
 
 CardsTab:Space()
@@ -1199,7 +1427,7 @@ end)
 local ConfigTab = Window:Tab({
     Title = "Config",
     Icon = "solar:settings-bold",
-    IconColor = DarkGray,
+    IconColor = LightGray,
     IconShape = "Square",
     Border = false,
 })
@@ -1269,6 +1497,7 @@ end
 
 local function getStateTable()
     return {
+        AutoRaidEnabled = S.AutoRaid,
         OrbitRadius = S.Orbit.radius,
         OrbitSpeed = S.Orbit.speed,
         OrbitEnabled = S.OrbitEnabled,
@@ -1278,6 +1507,7 @@ local function getStateTable()
         Anonymous = S.Anonymous,
         DisableAntiCheat = S.DisableAntiCheat,
         AntiAfkEnabled = S.AntiAfk,
+        AutoRestartEnabled = S.AutoRestart,
         AutoPickEnabled = S.AutoPick,
         SelectedMethod = S.SelectedMethod,
         CustomListText = table.concat(S.CustomList, ", "),
@@ -1299,7 +1529,8 @@ local function applyStateTable(state)
 
     local deadline = tick() + 10
     while tick() < deadline do
-        if UI.OrbitToggle and UI.MethodDropdown and UI.AutoPickToggle then
+        if UI.OrbitToggle and UI.MethodDropdown and UI.AutoPickToggle
+            and UI.AutoRaidToggle and UI.AutoRestartToggle then
             break
         end
         task.wait(0.1)
@@ -1314,6 +1545,7 @@ local function applyStateTable(state)
     if state.Anonymous ~= nil then safeSet(UI.AnonymousToggle, state.Anonymous) end
     if state.DisableAntiCheat ~= nil then safeSet(UI.DisableAntiCheatToggle, state.DisableAntiCheat) end
     if state.AntiAfkEnabled ~= nil then safeSet(UI.AntiAfkToggle, state.AntiAfkEnabled) end
+    if state.AutoRestartEnabled ~= nil then safeSet(UI.AutoRestartToggle, state.AutoRestartEnabled) end
     if state.AutoPickEnabled ~= nil then safeSet(UI.AutoPickToggle, state.AutoPickEnabled) end
 
     if state.SelectedMethod then
@@ -1344,6 +1576,8 @@ local function applyStateTable(state)
             end
         end)
     end
+
+    if state.AutoRaidEnabled ~= nil then safeSet(UI.AutoRaidToggle, state.AutoRaidEnabled) end
 end
 
 ConfigTab:Button({
