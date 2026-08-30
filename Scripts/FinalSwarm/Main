@@ -74,6 +74,7 @@ local S = {
     FreeCamera = false, RemoveEffects = false, Anonymous = false,
     originalCameraMode = nil, originalMaxZoom = nil, originalDevMouseLock = nil,
     orbitConnection = nil, idledConnection = nil, hoverPlatform = nil,
+    Loading = false,
 }
 
 local function getHumanoidRootPart()
@@ -253,13 +254,17 @@ UI.OrbitToggle = MovementTab:Toggle({
         S.OrbitEnabled = state
         if state then
             S.orbitConnection = RunService.RenderStepped:Connect(updateOrbit)
-            WindUI:Notify({ Title = "Movement", Content = "Orbit Enabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Movement", Content = "Orbit Enabled", Duration = 3 })
+            end
         else
             if S.orbitConnection then
                 S.orbitConnection:Disconnect()
                 S.orbitConnection = nil
             end
-            WindUI:Notify({ Title = "Movement", Content = "Orbit Disabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Movement", Content = "Orbit Disabled", Duration = 3 })
+            end
         end
     end,
 })
@@ -352,10 +357,14 @@ UI.HoverToggle = MovementTab:Toggle({
     Callback = function(state)
         S.Hover.enabled = state
         if state then
-            WindUI:Notify({ Title = "Movement", Content = "Hover Enabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Movement", Content = "Hover Enabled", Duration = 3 })
+            end
         else
             clearHoverPlatform()
-            WindUI:Notify({ Title = "Movement", Content = "Hover Disabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Movement", Content = "Hover Disabled", Duration = 3 })
+            end
         end
     end,
 })
@@ -420,7 +429,9 @@ UI.FreeCameraToggle = VisualsTab:Toggle({
             S.originalMaxZoom = player.CameraMaxZoomDistance
             player.CameraMaxZoomDistance = 1000000
             applyMouseUnlockOnce()
-            WindUI:Notify({ Title = "Visuals", Content = "Free Camera Enabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Visuals", Content = "Free Camera Enabled", Duration = 3 })
+            end
         else
             if S.originalCameraMode then
                 player.CameraMode = S.originalCameraMode
@@ -428,7 +439,9 @@ UI.FreeCameraToggle = VisualsTab:Toggle({
             if S.originalMaxZoom then
                 player.CameraMaxZoomDistance = S.originalMaxZoom
             end
-            WindUI:Notify({ Title = "Visuals", Content = "Free Camera Disabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Visuals", Content = "Free Camera Disabled", Duration = 3 })
+            end
         end
     end,
 })
@@ -492,10 +505,14 @@ UI.RemoveEffectsToggle = VisualsTab:Toggle({
         if state then
             clearVfxFolder()
             applyRemoveFog()
-            WindUI:Notify({ Title = "Visuals", Content = "Remove Effects Enabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Visuals", Content = "Remove Effects Enabled", Duration = 3 })
+            end
         else
             restoreFog()
-            WindUI:Notify({ Title = "Visuals", Content = "Remove Effects Disabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Visuals", Content = "Remove Effects Disabled", Duration = 3 })
+            end
         end
     end,
 })
@@ -743,7 +760,7 @@ local function restoreAnonymous()
     restorePass()
     task.delay(0.25, function() if not S.Anonymous then pcall(restorePass) end end)
     task.delay(1, function() if not S.Anonymous then pcall(restorePass) end end)
-    task.delay(3, function() if not S.Anonymous that pcall(restorePass) end end)
+    task.delay(3, function() if not S.Anonymous then pcall(restorePass) end end)
 end
 
 UI.AnonymousToggle = VisualsTab:Toggle({
@@ -754,10 +771,14 @@ UI.AnonymousToggle = VisualsTab:Toggle({
         if state then
             pcall(applyAnonymousAll)
             startAnonFastLoop()
-            WindUI:Notify({ Title = "Visuals", Content = "Anonymous Enabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Visuals", Content = "Anonymous Enabled", Duration = 3 })
+            end
         else
             restoreAnonymous()
-            WindUI:Notify({ Title = "Visuals", Content = "Anonymous Disabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Visuals", Content = "Anonymous Disabled", Duration = 3 })
+            end
         end
     end,
 })
@@ -794,9 +815,13 @@ UI.AutoPickToggle = CardsTab:Toggle({
     Callback = function(state)
         S.AutoPick = state
         if state then
-            WindUI:Notify({ Title = "Cards", Content = "Auto Pick Enabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Cards", Content = "Auto Pick Enabled", Duration = 3 })
+            end
         else
-            WindUI:Notify({ Title = "Cards", Content = "Auto Pick Disabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Cards", Content = "Auto Pick Disabled", Duration = 3 })
+            end
         end
     end,
 })
@@ -1213,11 +1238,15 @@ UI.DisableAntiCheatToggle = AutofarmTab:Toggle({
         if state then
             installAnticheatProxy()
             disableAnticheatWatchers()
-            WindUI:Notify({ Title = "Autofarm", Content = "Disable AntiCheat Enabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Autofarm", Content = "Disable AntiCheat Enabled", Duration = 3 })
+            end
         else
             removeAnticheatProxy()
             enableAnticheatWatchers()
-            WindUI:Notify({ Title = "Autofarm", Content = "Disable AntiCheat Disabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Autofarm", Content = "Disable AntiCheat Disabled", Duration = 3 })
+            end
         end
     end,
 })
@@ -1236,13 +1265,17 @@ UI.AntiAfkToggle = AutofarmTab:Toggle({
                     VirtualUser:ClickButton2(Vector2.new())
                 end)
             end
-            WindUI:Notify({ Title = "Autofarm", Content = "Anti AFK Enabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Autofarm", Content = "Anti AFK Enabled", Duration = 3 })
+            end
         else
             if S.idledConnection then
                 S.idledConnection:Disconnect()
                 S.idledConnection = nil
             end
-            WindUI:Notify({ Title = "Autofarm", Content = "Anti AFK Disabled", Duration = 3 })
+            if not S.Loading then
+                WindUI:Notify({ Title = "Autofarm", Content = "Anti AFK Disabled", Duration = 3 })
+            end
         end
     end,
 })
@@ -1463,6 +1496,9 @@ local function getStateTable()
         AutoPickEnabled = S.AutoPick,
         SelectedMethod = S.SelectedMethod,
         CustomListText = table.concat(S.CustomList, ", "),
+        Theme = WindUI:GetCurrentTheme(),
+        Acrylic = WindUI.Window.Acrylic,
+        Transparent = WindUI:GetTransparency(),
     }
 end
 
@@ -1471,6 +1507,11 @@ local function getMergedStateTable()
 end
 
 local function applyStateTable(state)
+    S.Loading = true
+    task.delay(5, function()
+        S.Loading = false
+    end)
+
     local deadline = tick() + 10
     while tick() < deadline do
         if UI.OrbitToggle and UI.MethodDropdown and UI.AutoPickToggle then
@@ -1502,6 +1543,26 @@ local function applyStateTable(state)
 
     if type(state.CustomListText) == "string" and state.CustomListText ~= "" then
         safeSet(UI.PriorityListInput, state.CustomListText)
+    end
+
+    if type(state.Theme) == "string" and state.Theme ~= "" then
+        pcall(function()
+            WindUI:SetTheme(state.Theme)
+        end)
+    end
+    if type(state.Acrylic) == "boolean" then
+        pcall(function()
+            if WindUI.Window.Acrylic ~= state.Acrylic then
+                WindUI:ToggleAcrylic(state.Acrylic)
+            end
+        end)
+    end
+    if type(state.Transparent) == "boolean" then
+        pcall(function()
+            if Window:GetTransparency() ~= state.Transparent then
+                Window:ToggleTransparency(state.Transparent)
+            end
+        end)
     end
 end
 
@@ -1625,6 +1686,7 @@ task.spawn(function()
                     applyStateTable(state)
                 end)
                 if successLoad then
+                    WindUI:Notify({ Title = "Config", Content = "AutoLoaded '" .. configName .. "'", Duration = 3 })
                 else
                     WindUI:Notify({ Title = "Config", Content = "AutoLoad Error: " .. tostring(err), Duration = 5 })
                 end
