@@ -74,7 +74,7 @@ local S = {
     AutoCodes = false, AutoCodesGen = 0,
     AutoGrade = false, AutoGradeGen = 0,
     SelectedGradeItem = "Void Ring",
-    GradeTarget = "S",
+    GradeTarget = "Omega",
     Loading = false,
 }
 
@@ -328,8 +328,6 @@ local function autoGradeLoop(myGen)
     local rewardHandledAt = 0
     local rewardVisibleSince = nil
     local lastOpenClick = 0
-    local lastGradeClick = 0
-    local lastItemClick = 0
     local lastZone = nil
 
     local function progress(state)
@@ -341,90 +339,64 @@ local function autoGradeLoop(myGen)
 
     while S.AutoGrade and myGen == S.AutoGradeGen do
         local inv = resolveMainInventory()
+        local skill = inv and inv:FindFirstChild("ArmorGradingSkillFrame")
+        local reward = inv and inv:FindFirstChild("ArmorGradingReward")
+        local gradingMenu = inv and inv:FindFirstChild("ArmorGrading")
 
-        if not inv or inv.Visible ~= true then
-            progress("open_inventory")
-            openInventory()
-            task.wait(1)
-        else
-            local skill = inv:FindFirstChild("ArmorGradingSkillFrame")
-            local reward = inv:FindFirstChild("ArmorGradingReward")
-            local gradingMenu = inv:FindFirstChild("ArmorGrading")
-
-            if reward and reward.Visible then
-                progress("reward")
-                if rewardVisibleSince == nil then
-                    rewardVisibleSince = tick()
-                end
-                if not rewardHandled and tick() - rewardVisibleSince >= 3 then
-                    handleReward(reward)
-                    rewardHandled = true
-                    rewardHandledAt = tick()
-                elseif rewardHandled and tick() - rewardHandledAt > 5 then
-                    rewardHandled = false
-                end
-                task.wait(0.25)
-            else
+        if reward and reward.Visible then
+            progress("reward")
+            if rewardVisibleSince == nil then
+                rewardVisibleSince = tick()
+            end
+            if not rewardHandled and tick() - rewardVisibleSince >= 3 then
+                handleReward(reward)
+                rewardHandled = true
+                rewardHandledAt = tick()
+            elseif rewardHandled and tick() - rewardHandledAt > 5 then
                 rewardHandled = false
-                rewardVisibleSince = nil
+            end
+            task.wait(0.25)
+        else
+            rewardHandled = false
+            rewardVisibleSince = nil
 
-                if skill and skill.Visible then
-                    local skillTest = skill:FindFirstChild("SkillTest")
-                    local spam = skillTest and skillTest:FindFirstChild("SpamText")
-                    if spam and spam.Visible then
-                        progress("spam")
-                        clickScreenCenter()
-                        RunService.Heartbeat:Wait()
-                    elseif skillTest then
-                        progress("minigame")
-                        local zone = playMinigameTick(skillTest)
-                        if zone ~= lastZone then
-                            lastZone = zone
-                            lastProgress = tick()
-                        end
-                        RunService.Heartbeat:Wait()
-                    else
-                        task.wait(0.1)
+            if skill and skill.Visible then
+                local skillTest = skill:FindFirstChild("SkillTest")
+                local spam = skillTest and skillTest:FindFirstChild("SpamText")
+                if spam and spam.Visible then
+                    progress("spam")
+                    clickScreenCenter()
+                    RunService.Heartbeat:Wait()
+                elseif skillTest then
+                    progress("minigame")
+                    local zone = playMinigameTick(skillTest)
+                    if zone ~= lastZone then
+                        lastZone = zone
+                        lastProgress = tick()
                     end
-                elseif gradingMenu and gradingMenu.Visible then
-                    progress("grading_menu")
-                    if targetAchieved(inv) then
-                        stopAutoGrade("Target grade achieved!")
-                        break
-                    end
-                    if tick() - lastOpenClick >= 3 then
-                        clickGui(gradingMenu:FindFirstChild("Open"))
-                        lastOpenClick = tick()
-                    end
-                    task.wait(0.3)
+                    RunService.Heartbeat:Wait()
                 else
-                    local wanted = normalizeItemName(S.SelectedGradeItem)
-                    local currentName = getSelectedItemName(inv)
-                    if currentName ~= wanted then
-                        progress("select_item")
-                        if tick() - lastItemClick >= 1 then
-                            clickItemButton(inv)
-                            lastItemClick = tick()
-                        end
-                        task.wait(0.5)
-                    else
-                        progress("grade_button")
-                        if targetAchieved(inv) then
-                            stopAutoGrade("Target grade achieved!")
-                            break
-                        end
-                        if tick() - lastGradeClick >= 1.5 then
-                            clickGradeButton(inv)
-                            lastGradeClick = tick()
-                        end
-                        task.wait(0.4)
-                    end
+                    task.wait(0.1)
                 end
+            elseif gradingMenu and gradingMenu.Visible then
+                progress("grading_menu")
+                if targetAchieved(inv) then
+                    stopAutoGrade("Target grade achieved!")
+                    break
+                end
+                if tick() - lastOpenClick >= 3 then
+                    clickGui(gradingMenu:FindFirstChild("Open"))
+                    lastOpenClick = tick()
+                end
+                task.wait(0.3)
+            else
+                progress("not_in_menu")
+                task.wait(0.5)
             end
         end
 
         if tick() - lastProgress > 45 then
-            stopAutoGrade("Stalled - out of crystals or item missing?")
+            stopAutoGrade("Stalled - out of crystals or menu closed?")
             break
         end
     end
@@ -727,8 +699,33 @@ UI.AutoGradeToggle = MiscTab:Toggle({
     Title = "Auto Grade",
     Value = false,
     Callback = function(state)
-        S.AutoGrade = state
         if state then
+            if not S.SelectedGradeItem or S.SelectedGradeItem == ""
+                or not S.GradeTarget or S.GradeTarget == "" then
+                S.AutoGrade = false
+                WindUI:Notify({ Title = "Grade", Content = "Select an item and target grade first!", Duration = 4 })
+                task.defer(function()
+                    if UI.AutoGradeToggle and UI.AutoGradeToggle.Set then
+                        pcall(function() UI.AutoGradeToggle:Set(false) end)
+                    end
+                end)
+                return
+            end
+
+            local inv = resolveMainInventory()
+            local gradingMenu = inv and inv:FindFirstChild("ArmorGrading")
+            if not gradingMenu or gradingMenu.Visible ~= true then
+                S.AutoGrade = false
+                WindUI:Notify({ Title = "Grade", Content = "Must be in the grade menu!", Duration = 4 })
+                task.defer(function()
+                    if UI.AutoGradeToggle and UI.AutoGradeToggle.Set then
+                        pcall(function() UI.AutoGradeToggle:Set(false) end)
+                    end
+                end)
+                return
+            end
+
+            S.AutoGrade = true
             S.AutoGradeGen = S.AutoGradeGen + 1
             local myGen = S.AutoGradeGen
             task.spawn(function()
@@ -738,6 +735,7 @@ UI.AutoGradeToggle = MiscTab:Toggle({
                 WindUI:Notify({ Title = "Grade", Content = "Auto Grade Enabled", Duration = 3 })
             end
         else
+            S.AutoGrade = false
             S.AutoGradeGen = S.AutoGradeGen + 1
             if not S.Loading then
                 WindUI:Notify({ Title = "Grade", Content = "Auto Grade Disabled", Duration = 3 })
