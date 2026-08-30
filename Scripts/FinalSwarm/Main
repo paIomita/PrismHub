@@ -417,7 +417,7 @@ local function applyMouseUnlockOnce()
 end
 
 UI.FreeCameraToggle = VisualsTab:Toggle({
-    Title = "Free Camera",
+    Title = "Infinite Zoom",
     Value = false,
     Callback = function(state)
         S.FreeCamera = state
@@ -430,7 +430,7 @@ UI.FreeCameraToggle = VisualsTab:Toggle({
             player.CameraMaxZoomDistance = 1000000
             applyMouseUnlockOnce()
             if not S.Loading then
-                WindUI:Notify({ Title = "Visuals", Content = "Free Camera Enabled", Duration = 3 })
+                WindUI:Notify({ Title = "Visuals", Content = "Infinite Zoom Enabled", Duration = 3 })
             end
         else
             if S.originalCameraMode then
@@ -440,7 +440,7 @@ UI.FreeCameraToggle = VisualsTab:Toggle({
                 player.CameraMaxZoomDistance = S.originalMaxZoom
             end
             if not S.Loading then
-                WindUI:Notify({ Title = "Visuals", Content = "Free Camera Disabled", Duration = 3 })
+                WindUI:Notify({ Title = "Visuals", Content = "Infinite Zoom Disabled", Duration = 3 })
             end
         end
     end,
@@ -498,7 +498,7 @@ local function restoreFog()
 end
 
 UI.RemoveEffectsToggle = VisualsTab:Toggle({
-    Title = "Remove Effects",
+    Title = "Remove VFX",
     Value = false,
     Callback = function(state)
         S.RemoveEffects = state
@@ -506,12 +506,12 @@ UI.RemoveEffectsToggle = VisualsTab:Toggle({
             clearVfxFolder()
             applyRemoveFog()
             if not S.Loading then
-                WindUI:Notify({ Title = "Visuals", Content = "Remove Effects Enabled", Duration = 3 })
+                WindUI:Notify({ Title = "Visuals", Content = "Remove VFX Enabled", Duration = 3 })
             end
         else
             restoreFog()
             if not S.Loading then
-                WindUI:Notify({ Title = "Visuals", Content = "Remove Effects Disabled", Duration = 3 })
+                WindUI:Notify({ Title = "Visuals", Content = "Remove VFX Disabled", Duration = 3 })
             end
         end
     end,
