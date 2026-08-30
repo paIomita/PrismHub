@@ -1615,7 +1615,10 @@ ConfigTab:Section({
 
 ConfigTab:Space()
 
-local ConfigFolder = "FinalSwarm_Configs"
+local ConfigFolder = "FinalSwarm_Configs/Main"
+if not isfolder("FinalSwarm_Configs") then
+    pcall(function() makefolder("FinalSwarm_Configs") end)
+end
 if isfolder and not isfolder(ConfigFolder) then
     pcall(function() makefolder(ConfigFolder) end)
 end
