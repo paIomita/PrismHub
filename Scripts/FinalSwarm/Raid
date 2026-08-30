@@ -1199,7 +1199,7 @@ end)
 local ConfigTab = Window:Tab({
     Title = "Config",
     Icon = "solar:settings-bold",
-    IconColor = LightGray,
+    IconColor = DarkGray,
     IconShape = "Square",
     Border = false,
 })
