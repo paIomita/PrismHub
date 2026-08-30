@@ -73,7 +73,7 @@ local S = {
     BuyDailyItems = false, BuyDailyItemsGen = 0,
     AutoCodes = false, AutoCodesGen = 0,
     AutoGrade = false, AutoGradeGen = 0,
-    SelectedGradeItem = "Void Helmet",
+    SelectedGradeItem = "Void Ring",
     GradeTarget = "S",
     Loading = false,
 }
