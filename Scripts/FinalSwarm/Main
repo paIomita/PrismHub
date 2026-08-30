@@ -452,7 +452,9 @@ local function clearVfxFolder()
     local vfx = workspace:FindFirstChild("VFX")
     if not vfx then return end
     for _, child in ipairs(vfx:GetChildren()) do
-        child:Destroy()
+        if child.Name ~= "DangerArea" then
+            child:Destroy()
+        end
     end
 end
 
@@ -498,7 +500,7 @@ local function restoreFog()
 end
 
 UI.RemoveEffectsToggle = VisualsTab:Toggle({
-    Title = "Remove VFX",
+    Title = "Remove Effects",
     Value = false,
     Callback = function(state)
         S.RemoveEffects = state
@@ -506,12 +508,12 @@ UI.RemoveEffectsToggle = VisualsTab:Toggle({
             clearVfxFolder()
             applyRemoveFog()
             if not S.Loading then
-                WindUI:Notify({ Title = "Visuals", Content = "Remove VFX Enabled", Duration = 3 })
+                WindUI:Notify({ Title = "Visuals", Content = "Remove Effects Enabled", Duration = 3 })
             end
         else
             restoreFog()
             if not S.Loading then
-                WindUI:Notify({ Title = "Visuals", Content = "Remove VFX Disabled", Duration = 3 })
+                WindUI:Notify({ Title = "Visuals", Content = "Remove Effects Disabled", Duration = 3 })
             end
         end
     end,
