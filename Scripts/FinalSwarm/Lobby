@@ -3,6 +3,7 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local TweenService = game:GetService("TweenService")
+local GuiService = game:GetService("GuiService")
 
 local cloneref = (cloneref or clonereference or function(instance)
     return instance
@@ -72,7 +73,6 @@ local S = {
     BuyDailyItems = false, BuyDailyItemsGen = 0,
     AutoCodes = false, AutoCodesGen = 0,
     AutoGrade = false, AutoGradeGen = 0,
-    SelectedGradeItem = "Void Ring",
     GradeTarget = "Omega",
     Loading = false,
 }
@@ -128,16 +128,6 @@ end
 local GRADE_TOLERANCE = 3
 local lastClick = 0
 
-local GRADE_TIERS = { "Copper", "Gold", "Diamond", "Emerald", "Void" }
-local GRADE_PIECES = { "Amulet", "Chestplate", "Helmet", "Leggings", "Ring" }
-
-local GRADE_ITEMS = {}
-for _, tier in ipairs(GRADE_TIERS) do
-    for _, piece in ipairs(GRADE_PIECES) do
-        table.insert(GRADE_ITEMS, tier .. " " .. piece)
-    end
-end
-
 local GRADE_TITLES_ORDER = { "F", "D", "C", "B", "A", "S", "SS", "SSS", "Omega" }
 
 local GRADE_ORDER = {
@@ -162,13 +152,13 @@ local function gradeRotationMatches(lineRotation, targetRotation)
     return diff <= GRADE_TOLERANCE
 end
 
-local function clickScreenCenter()
+local function clickMinigame()
     pcall(function()
         local camera = workspace.CurrentCamera
         if not camera then return end
         local viewport = camera.ViewportSize
         local x = viewport.X / 2
-        local y = viewport.Y / 2
+        local y = viewport.Y - 60
         VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
         VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
     end)
@@ -176,11 +166,20 @@ end
 
 local function clickGui(btn)
     if not btn then return false end
-    if not btn:IsA("GuiButton") then return false end
+    if firesignal then
+        pcall(function() firesignal(btn.MouseButton1Click) end)
+        return true
+    end
+    return false
+end
+
+local function clickOpenButton(btn)
+    if not btn then return false end
     pcall(function()
         local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
-        VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
-        VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
+        local inset = GuiService:GetGuiInset()
+        VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y + inset.Y, 0, true, game, 1)
+        VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y + inset.Y, 0, false, game, 1)
     end)
     return true
 end
@@ -240,7 +239,7 @@ local function playMinigameTick(skillTest)
         if zone and zone.Visible then
             if gradeRotationMatches(lineRotation, zone.Rotation) then
                 if tick() - lastClick >= 0.25 then
-                    clickScreenCenter()
+                    clickMinigame()
                     lastClick = tick()
                 end
             end
@@ -293,8 +292,9 @@ local function autoGradeLoop(myGen)
     local rewardHandledAt = 0
     local rewardVisibleSince = nil
     local lastOpenClick = 0
+    local openAgainAt = nil
     local lastZone = nil
-    local lastSpamClick = 0
+    local missingSince = nil
 
     local function progress(state)
         if state ~= lastState then
@@ -303,75 +303,101 @@ local function autoGradeLoop(myGen)
         end
     end
 
-    while S.AutoGrade and myGen == S.AutoGradeGen do
-        local inv = resolveMainInventory()
-        local skill = inv and inv:FindFirstChild("ArmorGradingSkillFrame")
-        local reward = inv and inv:FindFirstChild("ArmorGradingReward")
-        local gradingMenu = inv and inv:FindFirstChild("ArmorGrading")
+    local ok, err = pcall(function()
+        while S.AutoGrade and myGen == S.AutoGradeGen do
+            local inv = resolveMainInventory()
+            local skill = inv and inv:FindFirstChild("ArmorGradingSkillFrame")
+            local reward = inv and inv:FindFirstChild("ArmorGradingReward")
+            local gradingMenu = inv and inv:FindFirstChild("ArmorGrading")
 
-        if reward and reward.Visible then
-            progress("reward")
-            if rewardVisibleSince == nil then
-                rewardVisibleSince = tick()
-            end
-            if not rewardHandled and tick() - rewardVisibleSince >= 3 then
-                handleReward(reward)
-                rewardHandled = true
-                rewardHandledAt = tick()
-            elseif rewardHandled and tick() - rewardHandledAt > 5 then
-                rewardHandled = false
-            end
-            task.wait(0.25)
-        else
-            rewardHandled = false
-            rewardVisibleSince = nil
+            local skillVisible = skill ~= nil and skill.Visible == true
+            local rewardVisible = reward ~= nil and reward.Visible == true
+            local menuVisible = gradingMenu ~= nil and gradingMenu.Visible == true
 
-            if skill and skill.Visible then
-                local skillTest = skill:FindFirstChild("SkillTest")
-                local spam = skillTest and skillTest:FindFirstChild("SpamText")
-                if spam and spam.Visible then
-                    progress("spam")
-                    if tick() - lastSpamClick >= 0.05 then
-                        clickScreenCenter()
-                        lastSpamClick = tick()
-                    end
-                    task.wait(0.05)
-                elseif skillTest then
-                    progress("minigame")
-                    local zone = playMinigameTick(skillTest)
-                    if zone ~= lastZone then
-                        lastZone = zone
-                        lastProgress = tick()
-                    end
-                    task.wait(0.03)
-                else
-                    task.wait(0.1)
-                end
-            elseif gradingMenu and gradingMenu.Visible then
-                progress("grading_menu")
-                if outOfCrystals(inv) then
-                    stopAutoGrade("Ran out of grading crystals!")
+            if not (skillVisible or rewardVisible or menuVisible) then
+                progress("missing")
+                if missingSince == nil then
+                    missingSince = tick()
+                elseif tick() - missingSince > 1 then
+                    stopAutoGrade("Left the grade menu - Auto Grade disabled")
                     break
                 end
-                if targetAchieved(inv) then
-                    stopAutoGrade("Target grade achieved!")
-                    break
-                end
-                if tick() - lastOpenClick >= 3 then
-                    clickGui(gradingMenu:FindFirstChild("Open"))
-                    lastOpenClick = tick()
-                end
-                task.wait(0.3)
+                task.wait(0.1)
             else
-                progress("not_in_menu")
-                task.wait(0.5)
+                missingSince = nil
+
+                if rewardVisible then
+                    progress("reward")
+                    if rewardVisibleSince == nil then
+                        rewardVisibleSince = tick()
+                    end
+                    if not rewardHandled and tick() - rewardVisibleSince >= 3 then
+                        handleReward(reward)
+                        rewardHandled = true
+                        rewardHandledAt = tick()
+                        openAgainAt = tick() + 0.5
+                    elseif rewardHandled and tick() - rewardHandledAt > 5 then
+                        rewardHandled = false
+                    end
+                    task.wait(0.25)
+                else
+                    rewardHandled = false
+                    rewardVisibleSince = nil
+
+                    if skillVisible then
+                        local skillTest = skill:FindFirstChild("SkillTest")
+                        local spam = skillTest and skillTest:FindFirstChild("SpamText")
+                        if spam and spam.Visible then
+                            progress("spam")
+                            clickMinigame()
+                            RunService.Heartbeat:Wait()
+                        elseif skillTest then
+                            progress("minigame")
+                            local zone = playMinigameTick(skillTest)
+                            if zone ~= lastZone then
+                                lastZone = zone
+                                lastProgress = tick()
+                            end
+                            RunService.Heartbeat:Wait()
+                        else
+                            task.wait(0.1)
+                        end
+                    elseif menuVisible then
+                        progress("grading_menu")
+                        if outOfCrystals(inv) then
+                            stopAutoGrade("Ran out of grading crystals!")
+                            break
+                        end
+                        if targetAchieved(inv) then
+                            stopAutoGrade("Target grade achieved!")
+                            break
+                        end
+                        if openAgainAt then
+                            if tick() >= openAgainAt then
+                                clickOpenButton(gradingMenu:FindFirstChild("Open"))
+                                openAgainAt = nil
+                                lastOpenClick = tick()
+                            end
+                        elseif tick() - lastOpenClick >= 1.5 then
+                            clickOpenButton(gradingMenu:FindFirstChild("Open"))
+                            lastOpenClick = tick()
+                        end
+                        task.wait(0.3)
+                    else
+                        task.wait(0.1)
+                    end
+                end
+            end
+
+            if tick() - lastProgress > 45 then
+                stopAutoGrade("Stalled - out of crystals or menu closed?")
+                break
             end
         end
+    end)
 
-        if tick() - lastProgress > 45 then
-            stopAutoGrade("Stalled - out of crystals or menu closed?")
-            break
-        end
+    if not ok then
+        stopAutoGrade("Error: " .. tostring(err))
     end
 end
 
@@ -673,14 +699,13 @@ UI.AutoGradeToggle = MiscTab:Toggle({
     Value = false,
     Callback = function(state)
         if state then
-            if not S.SelectedGradeItem or S.SelectedGradeItem == ""
-                or not S.GradeTarget or S.GradeTarget == "" then
+            if not S.GradeTarget or S.GradeTarget == "" then
                 task.defer(function()
                     if UI.AutoGradeToggle and UI.AutoGradeToggle.Set then
                         pcall(function() UI.AutoGradeToggle:Set(false) end)
                     end
                 end)
-                WindUI:Notify({ Title = "Grade", Content = "Select an item and target grade first!", Duration = 4 })
+                WindUI:Notify({ Title = "Grade", Content = "Select a target grade first!", Duration = 4 })
                 return
             end
 
@@ -714,18 +739,6 @@ UI.AutoGradeToggle = MiscTab:Toggle({
                 end
             end
         end
-    end,
-})
-
-MiscTab:Space()
-
-UI.GradeItemDropdown = MiscTab:Dropdown({
-    Title = "Select Item",
-    Values = GRADE_ITEMS,
-    Value = S.SelectedGradeItem,
-    Multi = false,
-    Callback = function(selected)
-        S.SelectedGradeItem = selected
     end,
 })
 
@@ -1035,7 +1048,6 @@ local function getStateTable()
         BuyDailyItems = S.BuyDailyItems,
         AutoCodes = S.AutoCodes,
         AutoGrade = S.AutoGrade,
-        SelectedGradeItem = S.SelectedGradeItem,
         GradeTarget = S.GradeTarget,
         Theme = WindUI:GetCurrentTheme(),
         Acrylic = WindUI.Window.Acrylic,
@@ -1055,7 +1067,7 @@ local function applyStateTable(state)
 
     local deadline = tick() + 10
     while tick() < deadline do
-        if UI.ChestDropdown and UI.AutoGradeToggle and UI.GradeItemDropdown then
+        if UI.ChestDropdown and UI.AutoGradeToggle and UI.GradeTargetDropdown then
             break
         end
         task.wait(0.1)
@@ -1079,10 +1091,6 @@ local function applyStateTable(state)
     if state.ClaimDailyKeys ~= nil then safeSet(UI.ClaimDailyKeysToggle, state.ClaimDailyKeys) end
     if state.BuyDailyItems ~= nil then safeSet(UI.BuyDailyItemsToggle, state.BuyDailyItems) end
     if state.AutoCodes ~= nil then safeSet(UI.AutoCodesToggle, state.AutoCodes) end
-    if state.SelectedGradeItem then
-        S.SelectedGradeItem = state.SelectedGradeItem
-        selectDropdown(UI.GradeItemDropdown, state.SelectedGradeItem)
-    end
     if state.GradeTarget then
         S.GradeTarget = state.GradeTarget
         selectDropdown(UI.GradeTargetDropdown, state.GradeTarget)
