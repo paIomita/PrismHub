@@ -163,10 +163,10 @@ local ALL_ITEMS = {
 
 local DEFAULT_CUSTOM_LIST = {
     "Black Hole Cannon", "Void Scythe", "Trident", "Ban Hammer", "Poision Flask",
-    "Firestaff", "Missile", "Revolver", "Ninja Star", "Spike Ball", "Bananarang",
-    "Shotgun", "Lightning Staff", "Daggers", "Sword", "Axe", "Frost Walker",
-    "Flame Walker", "Sniper", "Aura", "Meteor", "Laserbeam", "Flamethrower",
-    "Tornado", "Multishot", "Projectile Count Legendary", "Power Trio",
+    "Laserbeam", "Firestaff", "Missile", "Tornado", "Revolver", "Ninja Star",
+    "Spike Ball", "Bananarang", "Shotgun", "Lightning Staff", "Daggers", "Sword",
+    "Axe", "Frost Walker", "Flame Walker", "Sniper", "Aura", "Meteor",
+    "Flamethrower", "Multishot", "Projectile Count Legendary", "Power Trio",
     "Damage Legendary", "XP Gain Legendary", "Size Legendary",
     "Attack Speed Legendary", "Luck Legendary", "Health Legendary",
     "Movement Speed Legendary", "Extra Jump Legendary", "Projectile Count Epic",
